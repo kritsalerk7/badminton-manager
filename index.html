@@ -1,0 +1,164 @@
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Badminton Manager</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="css/style.css" rel="stylesheet">
+  
+    <style>
+    body { background: #f8f9fa; }
+    .court-card { min-height: 200px; }
+    .draggable { cursor: move; }
+    .dropzone { border: 2px dashed #ccc; padding: 10px; min-height: 100px; border-radius: 5px; background-color: #fff; }
+    .dropzone.hover { background-color: #eef; }
+  </style>
+  
+</head>
+<body>
+  <div class="d-flex">
+    <nav class="bg-primary text-white p-3" style="width: 20%; min-height: 100vh;">
+      <h5>เมนู</h5>
+      <ul class="nav flex-column">
+        <li class="nav-item"><a class="nav-link text-white" href="#" data-target="members-section">จัดการสมาชิก</a></li>
+        <li class="nav-item"><a class="nav-link text-white" href="#" data-target="courts-section">จัดการคอร์ท</a></li>
+        <li class="nav-item"><a class="nav-link text-white" href="#" data-target="expenses-section">ค่าใช้จ่าย</a></li>
+        <li class="nav-item"><a class="nav-link text-white" href="#" data-target="statistics-section">สถิติ</a></li>
+      </ul>
+    </nav>
+    <main class="p-4" style="width: 80%;">
+      <div id="members-section" class="section">
+        <h3>จัดการสมาชิก</h3>
+		 <div class = "py-3" ><h3><strong>สมาชิกทั้งหมด:</strong> <span id="member-count">0</span> คน</h3></div>
+        <form id="member-form" class="row g-2 mb-3">
+          <div class="col-md-5"><input type="text" id="member-name" class="form-control" placeholder="ชื่อสมาชิก" required></div>
+          <div class="col-md-3">
+            <select id="member-level" class="form-select">
+              <option value="หนัก">หนัก</option>
+              <option value="กลาง">กลาง</option>
+              <option value="เบา">เบา</option>
+              <option value="มือใหม่">มือใหม่</option>
+            </select>
+          </div>
+          <div class="col-md-2"><button type="submit" class="btn btn-success w-100">เพิ่ม</button></div>
+        </form>
+        
+<div class="d-flex justify-content-start align-items-center mb-2">
+      <label for="level-filter">กรองตามระดับ:</label>&nbsp;
+      <select id="level-filter" class="form-select" style="width: auto; display: inline-block;">
+  <option value="">ระดับทั้งหมด</option>
+  <option value="หนัก">🐯 หนัก</option>
+  <option value="กลาง">🐶 กลาง</option>
+  <option value="เบา">🐰 เบา</option>
+  <option value="มือใหม่">🐢 มือใหม่</option>
+      </select>&nbsp;
+		
+    </div>
+	
+	<div id="alpha-pagination" class="d-flex flex-wrap gap-2 mb-3"></div>
+
+
+    <table id="member-table" class="table table-bordered table-sm">
+    
+          
+<thead>
+  <tr>
+    <th>ลำดับ</th>
+    <th>ชื่อ</th>
+    <th>ระดับ</th>
+    <th>จัดการ</th>
+  </tr>
+</thead>
+<tbody id="member-table-body"></tbody>
+
+          <tbody id="member-table-body" style = "font-size:10px;"></tbody>
+        </table>
+      </div>
+      <div id="courts-section" class="section "><h3>จัดการคอร์ท</h3>
+			<!--court section-->
+<div class="container py-4">
+  
+
+  <!-- เลือกวันที่ -->
+  <div class="mb-3">
+    <label for="court-date" class="form-label">เลือกวันที่:</label>
+    <input type="date" id="court-date" class="form-control w-auto d-inline-block">
+    <button id="load-signed-players" class="btn btn-secondary ms-2">โหลดผู้เล่นที่ลงชื่อ</button>
+  </div>
+
+  <!-- รายชื่อผู้เล่นที่มา -->
+  <div class="card mb-4">
+    <div class="card-header bg-primary text-white">ผู้เล่นที่ลงชื่อมาในวันนี้</div>
+    <ul id="signed-players" class="list-group list-group-flush">
+      <!-- dynamically generated list -->
+    </ul>
+  </div>
+
+  <!-- ปุ่มสุ่มและบันทึก -->
+  <div class="mb-3">
+    <button id="randomize-btn" class="btn btn-success">🎲 สุ่มผู้เล่นลงคอร์ท</button>
+    <button id="save-game-btn" class="btn btn-outline-primary">💾 บันทึกเกม</button>
+  </div>
+
+  <!-- แสดงคอร์ท -->
+  <div id="court-container" class="row g-3">
+    <!-- generated courts -->
+  </div>
+</div>
+									
+			<!--court section-->									
+	  </div>
+      <div id="expenses-section" class="section d-none"><h3>จัดการค่าใช้จ่าย</h3></div>
+      <div id="statistics-section" class="section d-none"><h3>สถิติ</h3></div>
+    </main>
+  </div>
+
+  <!-- Modal แก้ไขสมาชิก -->
+  <div class="modal fade" id="editMemberModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="edit-member-form">
+          <div class="modal-header">
+            <h5 class="modal-title">แก้ไขสมาชิก</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="edit-member-id" />
+            <input type="text" id="edit-member-name" class="form-control mb-2" placeholder="ชื่อ" required />
+            <select id="edit-member-level" class="form-select">
+<select id="filter-level" class="form-select">
+  <option value="">ระดับทั้งหมด</option>
+  <option value="หนัก">หนัก</option>
+  <option value="กลาง">กลาง</option>
+  <option value="เบา">เบา</option>
+  <option value="มือใหม่">มือใหม่</option>
+</select>
+            </select>
+          </div>
+          <div class="modal-footer">
+            <button type="submit" class="btn btn-primary">บันทึก</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css"/>
+<script>
+$(document).on('change', '#level-filter', function () {
+ const val = $(this).val();
+  const table = $('#member-table').DataTable();
+  table.column(2).search(val ? val : '').draw();
+});
+</script>
+</body>
+
+</html>
