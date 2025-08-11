@@ -76,10 +76,10 @@ function updateCounts(){
   try{
     const leftCount = applyFilters(state.members || []).length;
     const rightCount = (state.dayList || []).length;
-    const setTxt = (sel, val) => { const el = document.querySelector(sel); if (el) el.textContent = String(val); };
-    ["#countAll","#allCount","[data-count-all]"].forEach(sel => setTxt(sel, leftCount));
-    ["#countToday","#dayCount","[data-count-day]"].forEach(sel => setTxt(sel, rightCount));
+    document.querySelectorAll('#countAll,#allCount,[data-count-all]').forEach(el=> el.textContent = String(leftCount));
+    document.querySelectorAll('#countToday,#dayCount,[data-count-day]').forEach(el=> el.textContent = String(rightCount));
   }catch(e){}
+
 }
 function clearDropping(){
   try{
@@ -235,11 +235,12 @@ function renderLeft(container, members, pickedIds){
     const addBtnClass = isPicked ? 'btn btn-sm btn-success btn-add' : 'btn btn-sm btn-outline-primary btn-add';
     return `
       <li class="list-group-item member-row" data-id="${m.id}" draggable="true">
-        <div class="row-grid left w-100">
+        <div class="row-grid left">
           <div class="name-col d-flex align-items-center gap-2">
-          <span class="fw-semibold btn-profile" style = "cursor: pointer;">${escapeHtml(m.name || "(ไม่มีชื่อ)")}</span> ${levelBadge(m.level || 1)}
-		  </div>
-			<div class="actions-col d-flex gap-2 justify-content-end">
+          <span class="fw-semibold">${escapeHtml(m.name || "(ไม่มีชื่อ)")}</span> ${levelBadge(m.level || 1)}
+        </div>
+          <div class="actions-col d-flex gap-2 justify-content-end">
+		  <button type="button" class="btn btn-sm btn-outline-dark btn-profile" draggable="false" title="โปรไฟล์"><i class="bi bi-person-vcard"></i></button>
           <button type="button" class="btn btn-sm btn-outline-secondary btn-edit" draggable="false" title="แก้ไข"><i class="bi bi-pencil"></i></button>
           <button type="button" class="btn btn-sm btn-outline-danger btn-del" draggable="false" title="ลบ"><i class="bi bi-trash"></i></button>
           
@@ -250,7 +251,6 @@ function renderLeft(container, members, pickedIds){
   }).join("");
   updateCounts();
 }
-//<button type="button" class="btn btn-sm btn-outline-dark btn-profile" draggable="false" title="โปรไฟล์"><i class="bi bi-person-vcard"></i></button>
 function wireLeft(container, onAdd){
   if (!container) return;
   container.querySelectorAll(".member-row .btn-add").forEach(btn => {
@@ -317,39 +317,39 @@ function wireLeft(container, onAdd){
 /* ---------- Right render/wire ---------- */
 function renderDay(container, members, dayList){
   if (!container) return;
+  const header = '<li class="list-group-item list-header"><div class="row-grid right"><div class="name-col"><strong>ชื่อ</strong></div><div class="toggle-col"><strong>มาแล้ว / ยังไม่มา</strong></div><div class="actions-col text-end"><strong>วันนี้ยกเลิก</strong></div></div></li>';
   if (!dayList || !dayList.length){
-    container.innerHTML = '<li class="list-group-item"><div class="empty-state"><i class="bi bi-people"></i><div>ยังไม่มีผู้ลงชื่อ</div><small class="text-muted">เลือกจากรายการสมาชิกฝั่งซ้าย</small></div></li>';
+    container.innerHTML = header + '<li class="list-group-item"><div class="empty-state"><i class="bi bi-people"></i><div>ยังไม่มีผู้ลงชื่อ</div><small class="text-muted">เลือกจากรายการสมาชิกฝั่งซ้าย</small></div></li>';
+    updateCounts();
     return;
   }
   const map = new Map(members.map(m => [m.id, m]));
-  container.innerHTML = dayList.map(x => {
+  const items = dayList.map(x => {
     const m = map.get(x.id);
     const name = m ? escapeHtml(m.name || "") : ("(" + x.id.substring(0,6) + ")");
     const lv = m ? (m.level || 1) : 1;
     const arrived = !!x.arrived;
-    const arriveCls = arrived ? "btn btn-sm btn-success btn-arrive" : "btn btn-sm btn-outline-secondary btn-arrive";
-    const arriveIcon = arrived ? "bi-toggle-on" : "bi-toggle-off";
-    const arriveTitle = arrived ? "มาแล้ว" : "ยังไม่มา";
+    const titleTxt = arrived ? "มาแล้ว" : "ยังไม่มา";
     return `<li class="list-group-item day-row" data-id="${x.id}" draggable="true">
-      <div class="row-grid right">
-        <div class="name-col d-flex align-items-center gap-2">
-          <span class="fw-semibold btn-profile" style = "cursor: pointer;">${name}</span> ${levelBadge(lv)}
+      <div class=" row-grid right">
+        <div class="name-col  d-flex align-items-center gap-2">
+          <span class="fw-semibold">${name}</span> ${levelBadge(lv)}
         </div>
-        <div class="toggle-col">
-          <button type="button" class="${arriveCls}" title="${arriveTitle}" draggable="false">
-            <i class="bi ${arriveIcon}"></i>
+        <div class="toggle-col  ">
+          <button type="button" class="btn-arrive toggle-btn" title="${titleTxt}" aria-pressed="${arrived}" data-state="${arrived?'on':'off'}" draggable="false">
+            <span class="tgl-track"><span class="tgl-thumb"></span></span>
           </button>
         </div>
-          <div class="actions-col d-flex gap-2 justify-content-end">
-          
+        <div class="actions-col col-4 d-flex  justify-content-end">
+         
           <button type="button" class="btn btn-sm btn-outline-danger btn-cancel" title="ยกเลิก" draggable="false"><i class="bi bi-x-circle"></i></button>
         </div>
       </div>
     </li>`;
   }).join("");
+  container.innerHTML = header + items;
   updateCounts();
-} //<button type="button" class="btn btn-sm btn-outline-dark btn-profile" draggable="false" title="โปรไฟล์" draggable="false"><i class="bi bi-person-vcard"></i></button>
-function wireRight(container){
+}function wireRight(container){
   if (!container) return;
   container.querySelectorAll(".day-row .btn-cancel").forEach(btn => {
     if (btn.__bound) return; btn.__bound = true;
@@ -389,15 +389,12 @@ function wireRight(container){
       state.dayList[idx].arrived = !state.dayList[idx].arrived;
       try{
         await saveDayRoster();
-        const icon = row.querySelector(".btn-arrive i");
         const b = row.querySelector(".btn-arrive");
-        if (icon && b){
+        if (b){
           const arrived = state.dayList[idx].arrived;
-          icon.className = "bi " + (arrived ? "bi-toggle-on" : "bi-toggle-off");
-          b.className = arrived ? "btn btn-sm btn-success btn-arrive" : "btn btn-sm btn-outline-secondary btn-arrive";
+          b.setAttribute("data-state", arrived ? "on" : "off");
+          b.setAttribute("aria-pressed", arrived ? "true" : "false");
           b.title = arrived ? "มาแล้ว" : "ยังไม่มา";
-          const label = b.querySelector("span.d-none.d-sm-inline");
-          if (label) label.textContent = arrived ? "มาแล้ว" : "ยังไม่มา";
         }
       }catch(err){
         alert("อัปเดตสถานะมาแล้วไม่สำเร็จ: " + (err?.message || err));
@@ -544,6 +541,54 @@ function onAddToToday(pickedIds){
 }
 
 /* ---------- Profile modal & stats ---------- */
+
+/* ----- Profile helpers (non-breaking) ----- */
+function ymFromISO(dateISO){ return String(dateISO).slice(0,7); }
+function addMonths(isoYM, delta){
+  const [y,m] = isoYM.split("-").map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,"0");
+  return `${yy}-${mm}`;
+}
+async function safeGetMonthDays(ym){
+  try{
+    if (typeof DB.getMonthDays === "function"){
+      const raw = await DB.getMonthDays(ym);
+      return Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? Object.values(raw) : []);
+    }
+  }catch(e){ console.warn("[profile] getMonthDays failed:", e); }
+  return [];
+}
+function extractPlayerFromDay(day, memberId){
+  if (!day) return null;
+  if (Array.isArray(day.players)){
+    const p = day.players.find(x => x && x.id === memberId);
+    return p ? { id: memberId, arrived: !!p.arrived } : null;
+  }
+  if (Array.isArray(day.playerIds)){
+    const found = day.playerIds.includes(memberId);
+    if (!found) return null;
+    const arrived = !!(day.arrived && day.arrived[memberId]);
+    return { id: memberId, arrived };
+  }
+  return null;
+}
+function buildRecentList(rows){
+  if (!rows.length) return '<div class="text-muted small">ยังไม่มีประวัติล่าสุด</div>';
+  return rows.map(r => {
+    const badge = r.arrived
+      ? '<span class="badge text-bg-success">มา</span>'
+      : '<span class="badge text-bg-secondary">ไม่มา</span>';
+    const dt = escapeHtml(r.date);
+    return `<div class="d-flex justify-content-between align-items-center small py-1 border-bottom">
+      <div class="text-muted">${dt}</div>
+      <div>${badge}</div>
+    </div>`;
+  }).join("");
+}
+function pct(num, den){ if (!den) return 0; return Math.round((num/den)*100); }
+
 let profileModal, profileModalEl;
 function ensureProfileModal(){
   profileModalEl = qs("#profileModal");
@@ -553,30 +598,87 @@ function ensureProfileModal(){
     div.className = "modal fade";
     div.tabIndex = -1;
     div.innerHTML = `
-<div class="modal-dialog modal-lg modal-dialog-centered">
+<div class="modal-dialog modal-xl modal-dialog-centered">
   <div class="modal-content">
     <div class="modal-header">
       <h5 class="modal-title"><i class="bi bi-person-vcard me-2"></i><span id="pfName"></span></h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
     </div>
     <div class="modal-body">
-      <div class="mb-3" id="pfToday"></div>
-      <div class="mb-2"><strong>สรุปเดือน <span id="pfMonth"></span></strong></div>
-      <div id="pfMonthly" class="row g-2">
-        <div class="col-6">
-          <div class="stat-card">
-            <div class="label">ลงชื่อ</div>
-            <div class="value" id="pfSigned">0</div>
+      <div class="row g-3">
+        <div class="col-12 col-lg-4">
+          <div class="card shadow-sm border-0">
+            <div class="card-body">
+              <div class="mb-2"><strong>สถานะวันนี้</strong></div>
+              <div id="pfToday"></div>
+              <hr/>
+              <div class="mb-2"><strong>สรุปเดือน <span id="pfMonth"></span></strong></div>
+              <div class="row g-2" id="pfMonthly">
+                <div class="col-6">
+                  <div class="stat-card">
+                    <div class="label">ลงชื่อ</div>
+                    <div class="value" id="pfSigned">0</div>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="stat-card">
+                    <div class="label">มาเล่น</div>
+                    <div class="value" id="pfArrived">0</div>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <div class="label mt-2">อัตรามาเล่น</div>
+                  <div class="progress" role="progressbar" aria-label="Arrival rate">
+                    <div class="progress-bar bg-success" id="pfRateBar" style="width:0%">0%</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="col-6">
-          <div class="stat-card">
-            <div class="label">มาเล่น</div>
-            <div class="value" id="pfArrived">0</div>
+        <div class="col-12 col-lg-8">
+          <div class="card shadow-sm border-0">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <strong>ประวัติล่าสุด</strong>
+                <small class="text-muted" id="pfRangeNote"></small>
+              </div>
+              <div id="pfRecent" class="mt-2"></div>
+            </div>
+          </div>
+          <div class="card shadow-sm border-0 mt-3">
+            <div class="card-body">
+              <strong>ภาพรวม (6 เดือนหลัง)</strong>
+              <div class="row g-2 mt-2 text-center" id="pfOverall">
+                <div class="col-6 col-md-3">
+                  <div class="mini-stat">
+                    <div class="mini-label">ลงชื่อ</div>
+                    <div class="mini-value" id="pf6Signed">0</div>
+                  </div>
+                </div>
+                <div class="col-6 col-md-3">
+                  <div class="mini-stat">
+                    <div class="mini-label">มาเล่น</div>
+                    <div class="mini-value" id="pf6Arrived">0</div>
+                  </div>
+                </div>
+                <div class="col-6 col-md-3">
+                  <div class="mini-stat">
+                    <div class="mini-label">ไม่มา</div>
+                    <div class="mini-value" id="pf6NoShow">0</div>
+                  </div>
+                </div>
+                <div class="col-6 col-md-3">
+                  <div class="mini-stat">
+                    <div class="mini-label">อัตรามา</div>
+                    <div class="mini-value" id="pf6Rate">0%</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="mt-3" id="pfBreakdown"></div>
+      </div> <!-- row -->
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
@@ -586,7 +688,18 @@ function ensureProfileModal(){
     document.body.appendChild(div);
     profileModalEl = div;
   }
-  profileModal = (window.bootstrap && bootstrap.Modal) ? (profileModal || new bootstrap.Modal(profileModalEl)) : null;
+  try{
+    if (window.bootstrap && bootstrap.Modal){
+      const inst = bootstrap.Modal.getInstance(profileModalEl);
+      profileModal = inst || bootstrap.Modal.getOrCreateInstance(profileModalEl, { backdrop: true, focus: true, keyboard: true });
+} else {
+      profileModal = null;
+      console.error("[profile] bootstrap.Modal not found. Load bootstrap.bundle.min.js after CSS.");
+    }
+  }catch(e){
+    profileModal = null;
+    console.error("[profile] init modal failed:", e);
+  }
   if (profileModalEl && !profileModalEl.__cleanupBound){
     profileModalEl.addEventListener("hidden.bs.modal", cleanupBackdrops);
     profileModalEl.__cleanupBound = true;
@@ -599,33 +712,56 @@ async function openProfileModal(memberId){
     const m = state.members.find(x => x.id === memberId);
     const name = m?.name || "(ไม่ทราบชื่อ)";
     profileModalEl.querySelector("#pfName").textContent = name;
+
     // Today status
     const today = (state.dayList||[]).find(x => x.id === memberId);
     profileModalEl.querySelector("#pfToday").innerHTML = today
       ? `<span class="badge text-bg-${today.arrived?'success':'secondary'}">${today.arrived?'มาแล้ว':'ยังไม่มา'}</span> วันนี้`
       : `<span class="badge text-bg-light text-dark">ไม่ได้ลงชื่อวันนี้</span>`;
-    // Month stats
-    const ym = yearMonthOf(state.date);
-    const raw = await (DB.getMonthDays ? DB.getMonthDays(ym) : Promise.resolve([]));
-    const days = Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? Object.values(raw) : []);
-    let signed = 0, arrived = 0;
-    const rows = [];
-    days.forEach(d => {
-      const dateISO = d.date || d.id;
-      const players = Array.isArray(d.players)
-        ? d.players
-        : (Array.isArray(d.playerIds) ? d.playerIds.map(id => ({id, arrived: !!(d.arrived?.[id])})) : []);
-      const found = players.find(p => p.id === memberId);
-      if (found){
-        signed++;
-        if (found.arrived) arrived++;
-        rows.push(`<div class="small text-muted">${dateISO}: ${found.arrived?'<span class="badge text-bg-success">มา</span>':'<span class="badge text-bg-secondary">ไม่มา</span>'}</div>`);
-      }
+
+    // Monthly stats for selected month
+    const ym = ymFromISO(state.date);
+    const monthDays = await safeGetMonthDays(ym);
+    let signedM = 0, arrivedM = 0;
+    monthDays.forEach(d => {
+      const p = extractPlayerFromDay(d, memberId);
+      if (p){ signedM++; if (p.arrived) arrivedM++; }
     });
+    const rateM = pct(arrivedM, signedM);
     profileModalEl.querySelector("#pfMonth").textContent = ym;
-    profileModalEl.querySelector("#pfSigned").textContent = signed;
-    profileModalEl.querySelector("#pfArrived").textContent = arrived;
-    profileModalEl.querySelector("#pfBreakdown").innerHTML = rows.length ? rows.join("") : '<div class="text-muted small">ยังไม่มีข้อมูลเดือนนี้</div>';
+    profileModalEl.querySelector("#pfSigned").textContent = signedM;
+    profileModalEl.querySelector("#pfArrived").textContent = arrivedM;
+    const bar = profileModalEl.querySelector("#pfRateBar");
+    if (bar){ bar.style.width = rateM + "%"; bar.textContent = rateM + "%"; }
+
+    // 6 months overview + recent 12 rows
+    const months = [0,1,2,3,4,5].map(n => addMonths(ym, -n));
+    let s6 = 0, a6 = 0;
+    const recent = [];
+    for (const mth of months){
+      const days = await safeGetMonthDays(mth);
+      days.sort((a,b)=> String((a.date||a.id)).localeCompare(String((b.date||b.id)))); // asc
+      for (const d of days){
+        const p = extractPlayerFromDay(d, memberId);
+        if (!p) continue;
+        const dateISO = d.date || d.id;
+        s6++; if (p.arrived) a6++;
+        if (recent.length < 48){ recent.push({ date: dateISO, arrived: !!p.arrived }); }
+      }
+    }
+    recent.sort((a,b)=> String(a.date).localeCompare(String(b.date)));
+    const last12 = recent.slice(-12).reverse(); // newest first
+    const r6 = pct(a6, s6), no6 = s6 - a6;
+
+    const setTxt = (sel,val)=>{ const el = profileModalEl.querySelector(sel); if (el) el.textContent = String(val); };
+    setTxt("#pf6Signed", s6); setTxt("#pf6Arrived", a6); setTxt("#pf6NoShow", no6); setTxt("#pf6Rate", r6 + "%");
+
+    const rangeNote = profileModalEl.querySelector("#pfRangeNote");
+    if (rangeNote){ rangeNote.textContent = `ช่วง ${months[5]} ถึง ${months[0]}`; }
+
+    const recentEl = profileModalEl.querySelector("#pfRecent");
+    if (recentEl){ recentEl.innerHTML = buildRecentList(last12); }
+
     if (profileModal) profileModal.show();
   }catch(err){
     console.error("openProfileModal failed:", err);
@@ -652,7 +788,7 @@ function bindDatePicker(){
       const cur = applyFilters(state.members);
       renderLeft(leftBox, cur, picked); wireLeft(leftBox, onAddToToday(picked));
       rightBox = getDayBox(); renderDay(rightBox, state.members, state.dayList); wireRight(rightBox);
-      updateDayHeader(state.date); bindDayControls(); enableDnD();
+      updateDayHeader(state.date); bindDayControls(); bindLevelFilter(); enableDnD(); updateCounts();
     });
   });
 }
@@ -667,7 +803,7 @@ async function subscribeRealtime(){
     const cur = applyFilters(state.members);
     renderLeft(leftBox, cur, picked); wireLeft(leftBox, onAddToToday(picked));
     rightBox = getDayBox(); renderDay(rightBox, state.members, state.dayList); wireRight(rightBox);
-    bindDayControls(); enableDnD();
+    bindDayControls(); bindLevelFilter(); enableDnD(); updateCounts();
   });
   if (unsubDay){ try{unsubDay();}catch(e){} }
   unsubDay = DB.observeDay(state.date, (day)=>{
@@ -681,7 +817,7 @@ async function subscribeRealtime(){
     const cur = applyFilters(state.members);
     renderLeft(leftBox, cur, picked); wireLeft(leftBox, onAddToToday(picked));
     rightBox = getDayBox(); renderDay(rightBox, state.members, state.dayList); wireRight(rightBox);
-    updateDayHeader(state.date); bindDayControls(); enableDnD();
+    updateDayHeader(state.date); bindDayControls(); bindLevelFilter(); enableDnD(); updateCounts();
   });
 }
 
@@ -734,8 +870,8 @@ async function handleMemberSave(e){
 }
 function bindModalHandlers(){
   queryModalRefs();
-  if (memberEditForm && !memberEditForm.__boundSave){ memberEditForm.addEventListener("submit", handleMemberSave); memberEditForm.__boundSave = true; }
-  if (memberEditSaveBtn && !memberEditSaveBtn.__boundSave){ memberEditSaveBtn.addEventListener("click", handleMemberSave); memberEditSaveBtn.__boundSave = true; }
+  //if (memberEditForm && !memberEditForm.__boundSave){ memberEditForm.addEventListener("submit", handleMemberSave); memberEditForm.__boundSave = true; }
+  //if (memberEditSaveBtn && !memberEditSaveBtn.__boundSave){ memberEditSaveBtn.addEventListener("click", handleMemberSave); memberEditSaveBtn.__boundSave = true; }
   if (memberEditModalEl && !memberEditModalEl.__delegated){
     memberEditModalEl.addEventListener("click", (ev)=>{
       const t = ev.target.closest("[data-member-save], #memberEditSaveBtn, #memberSaveBtn, button[type=submit]");
@@ -764,7 +900,7 @@ function bindDatePicker(){
       const cur = applyFilters(state.members);
       renderLeft(leftBox, cur, picked); wireLeft(leftBox, onAddToToday(picked));
       rightBox = getDayBox(); renderDay(rightBox, state.members, state.dayList); wireRight(rightBox);
-      updateDayHeader(state.date); bindDayControls(); enableDnD();
+      updateDayHeader(state.date); bindDayControls(); bindLevelFilter(); enableDnD(); updateCounts();
     });
   });
 }
@@ -782,7 +918,7 @@ async function initMembersPage(){
     const cur = applyFilters(state.members);
     renderLeft(leftBox, cur, picked); wireLeft(leftBox, onAddToToday(picked));
     rightBox = getDayBox(); renderDay(rightBox, state.members, state.dayList); wireRight(rightBox);
-    bindDayControls(); enableDnD();
+    bindDayControls(); bindLevelFilter(); enableDnD(); updateCounts();
     await subscribeRealtime();
   }catch(err){
     console.error("initMembersPage failed:", err);
