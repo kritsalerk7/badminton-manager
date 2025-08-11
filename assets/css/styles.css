@@ -1,0 +1,100 @@
+/* styles.css v2.4 */
+body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans Thai', Arial, sans-serif; }
+.min-h-320 { min-height: 320px; }
+
+/* Level chip with emoji icon */
+.level-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .25rem .6rem;
+  border-radius: 999px;
+  font-weight: 700;
+  line-height: 1;
+}
+.level-emoji { font-size: 26px; line-height: 1; }
+
+.level-beginner { background:#e9f3ff; color:#0b5ed7; } /* มือใหม่ */
+.level-light    { background:#e8fff1; color:#1f8f52; } /* เบา */
+.level-medium   { background:#fff9e6; color:#b58100; } /* กลาง */
+.level-hard     { background:#ffeaea; color:#c52727; } /* หนัก */
+
+.list-group-item.dragging { opacity: .6; }
+.dropzone {
+  border: 2px dashed #ced4da;
+  border-radius: .5rem;
+  padding: .35rem .6rem;
+}
+.dropzone.active { border-color: #0d6efd; background: #eef5ff; }
+.member-row { display:flex; align-items:center; gap:.6rem; }
+.member-main { flex:1 1 auto; cursor:pointer; } /* clickable for profile */
+.btn-icon { border:0; background:transparent; padding:.25rem .35rem; }
+.btn-icon:hover { background:#f1f3f5; border-radius:.375rem; }
+
+/* Selected (already in today's list) highlight */
+.list-group-item.item-selected {
+  background:#e7f5ff !important;
+  border-left: 4px solid #228be6;
+}
+
+/* Alpha bar: responsive grid of 20 columns (auto-wrap new rows) */
+#alphaBar { margin-top:.5rem; }
+#alphaBar .alpha-all { display:flex; justify-content:center; margin-bottom:.35rem; }
+#alphaBar .alpha-grid {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: .35rem;
+}
+.alpha-btn {
+  border:1px solid #dee2e6; border-radius:.4rem; padding:.25rem .45rem; font-weight:600;
+  background:#fff; cursor:pointer; user-select:none; width:100%;
+}
+.alpha-btn:hover { background:#f8f9fa; }
+.alpha-btn.active { background:#0d6efd; color:#fff; border-color:#0d6efd; }
+
+/* Arrived status badge */
+.badge-arrived { background:#e9ffe9; color:#198754; font-weight:600; border:1px solid #c7f3c7; }
+.badge-absent  { background:#fff1f1; color:#dc3545; font-weight:600; border:1px solid #ffd6d6; }
+
+@media (max-width: 1200px) {
+  #alphaBar .alpha-grid { grid-template-columns: repeat(16, 1fr); }
+}
+@media (max-width: 992px) {
+  #alphaBar .alpha-grid { grid-template-columns: repeat(12, 1fr); }
+}
+@media (max-width: 768px) {
+  #alphaBar .alpha-grid { grid-template-columns: repeat(10, 1fr); }
+}
+@media (max-width: 576px) {
+  #alphaBar .alpha-grid { grid-template-columns: repeat(8, 1fr); }
+}
+#alphaBar .alpha-btn, .alpha-btn {
+  border: 1px solid #dee2e6;
+  border-radius: .4rem;
+  padding: .25rem .45rem;
+  font-weight: 600;
+  background: #fff;
+  cursor: pointer;
+  user-select: none;
+  width: 100%;
+  white-space: nowrap;
+}
+.alpha-btn:hover { background: #f8f9fa; }
+.alpha-btn.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+/* --- Mini Calendar --- */
+.mini-cal { width: 100%; font-family: system-ui, sans-serif; }
+.mini-cal .cal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.mini-cal .cal-nav { display:flex; gap:8px; }
+.mini-cal .cal-nav button { border:1px solid #e5e7eb; background:#fff; padding:4px 8px; border-radius:8px; cursor:pointer; }
+.mini-cal .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+.mini-cal .dow { font-size:.75rem; color:#6b7280; text-align:center; }
+.mini-cal .cell { position:relative; aspect-ratio:1/1; border-radius:10px; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; }
+.mini-cal .cell.in-month { background:#f9fafb; }
+.mini-cal .cell.out-month { background:#fafafa; color:#9ca3af; }
+.mini-cal .cell:hover { outline:2px solid #bfdbfe; }
+.mini-cal .cell.today { border:1.5px solid #60a5fa; }
+.mini-cal .cell.selected { background:#e0f2fe; outline:2px solid #38bdf8; }
+.mini-cal .badge { position:absolute; bottom:6px; right:6px; min-width:16px; height:16px; padding:0 4px; border-radius:999px; font-size:.7rem; display:flex; align-items:center; justify-content:center; background:#0ea5e9; color:#fff; }
+.mini-cal .dot { position:absolute; bottom:6px; width:6px; height:6px; border-radius:999px; background:#0ea5e9; }
+.mini-cal .cell .num { font-weight:600; }
+@media (max-width: 480px){ .mini-cal .cal-grid{ gap:4px; } }

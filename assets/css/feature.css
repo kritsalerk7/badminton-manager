@@ -1,0 +1,4 @@
+
+/* Feature patch: small styles */
+.animal { font-size: 1.1rem; line-height: 1; }
+.flash { outline: 2px dashed #0d6efd; background: rgba(13,110,253,.08); }
