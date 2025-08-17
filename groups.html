@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>จัดการก๊วน - Badminton Manage</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="index.html">🏸 Badminton Manage</a> <div class="ms-3" style="min-width:220px;display:inline-block;"><div id="ownerGroupSwitcher"></div></div>
+    <div class="ms-3" style="min-width:220px"><select id="ownerGroupSwitcher" class="form-select form-select-sm"><option>...</option></select></div><div class="ms-auto d-flex gap-2">
+      <a href="court.html" class="btn btn-sm btn-light">ไปหน้า จัดการคอร์ท</a>
+      <a href="login.html?force=1" class="btn btn-sm btn-outline-light">Logout</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container my-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h4 m-0">จัดการก๊วน</h1>
+    <div class="input-group" style="max-width:420px;">
+      <input id="newGroupName" class="form-control" placeholder="ตั้งชื่อก๊วนใหม่">
+      <button id="btnCreateGroup" class="btn btn-primary"><i class="bi bi-plus-lg"></i> สร้างก๊วน</button>
+    </div>
+  </div>
+
+  
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">เข้าร่วมด้วย Group ID</label>
+        <input id="joinGroupGid" class="form-control" placeholder="เช่น abc123">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Invite Code</label>
+        <input id="joinGroupCode" class="form-control" placeholder="โค้ดจากเจ้าของก๊วน">
+      </div>
+      <div class="col-md-4">
+        <button id="btnJoinByCode" class="btn btn-success w-100"><i class="bi bi-person-plus"></i> เข้าร่วมก๊วน</button>
+      </div>
+    </div>
+    <div class="small text-muted mt-2">หรือเปิดลิงก์เชิญ: join.html?gid=&lt;GROUP_ID&gt;&code=&lt;INVITE_CODE&gt;</div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+      <div id="groupList" class="row g-3"></div>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/firebase_config.js"></script>
+<script type="module">
+  import { requireAuth } from "./assets/js/auth_guard.js";
+  import * as GS from "./assets/js/group_state.js?v=20250812";
+
+  requireAuth('login.html');
+
+  const $ = (id)=>document.getElementById(id);
+  const listEl = $('groupList');
+
+  function card(g){
+    const col = document.createElement('div');
+    col.className = 'col-12 col-md-6 col-lg-4';
+
+    const isActive = (GS.getCurrentGroupId() === g.id);
+    col.innerHTML = `
+      <div class="border rounded-4 p-3 h-100 d-flex flex-column">
+        <div class="d-flex align-items-start justify-content-between mb-2">
+          <div>
+            <div class="fw-semibold">${g.name || g.id}</div>
+            <div class="text-muted small">id: ${g.id}</div>
+          </div>
+          <div>${GS.renderRoleBadge(g.myRole).outerHTML}</div>
+        </div>
+        <div class="mt-auto d-flex flex-wrap gap-2">
+          <button class="btn btn-sm btn-outline-secondary btn-rename"><i class="bi bi-pencil-square"></i> เปลี่ยนชื่อ</button>
+          <button class="btn btn-sm btn-outline-primary btn-activate" ${isActive?'disabled':''}><i class="bi bi-check2-circle"></i> ใช้งานก๊วนนี้</button>
+          ${g.myRole==='owner'
+            ? '<button class="btn btn-sm btn-outline-danger btn-delete"><i class="bi bi-trash"></i> ลบก๊วน</button>' + '<button class="btn btn-sm btn-outline-success btn-invite"><i class="bi bi-link-45deg"></i> สร้างลิงก์เชิญ</button>'
+            : '<button class="btn btn-sm btn-outline-warning btn-leave"><i class="bi bi-box-arrow-right"></i> ออกจากก๊วน</button>'
+          }
+        </div>
+      </div>
+    `;
+
+    col.querySelector('.btn-rename').addEventListener('click', async ()=>{
+      const name = prompt('ตั้งชื่อใหม่', g.name || '');
+      if (!name) return;
+      await GS.renameGroup(g.id, name);
+      await GS.ensureOwnerMappings().then(reload);
+    });
+    const btnAct = col.querySelector('.btn-activate');
+    if (btnAct) btnAct.addEventListener('click', async ()=>{
+      GS.setCurrentGroupId(g.id);
+      await GS.ensureOwnerMappings().then(reload);
+    });
+
+    if (g.myRole==='owner'){
+      col.querySelector('.btn-delete').addEventListener('click', async ()=>{
+        if (!confirm('ยืนยันลบก๊วนนี้? (soft delete)')) return;
+        await GS.deleteGroup(g.id);
+        await GS.ensureOwnerMappings().then(reload);
+      });
+    } else {
+      col.querySelector('.btn-leave').addEventListener('click', async ()=>{
+        if (!confirm('ยืนยันออกจากก๊วนนี้?')) return;
+        await GS.leaveGroup(g.id);
+        await GS.ensureOwnerMappings().then(reload);
+      });
+    }
+    return col;
+  }
+
+  async function reload(){
+    listEl.innerHTML = '<div class="text-center text-muted my-4">กำลังโหลด...</div>';
+    const groups = await GS.listMyGroups();
+    listEl.innerHTML = '';
+    if (groups.length === 0){
+      const div = document.createElement('div');
+      div.className = 'text-center text-muted my-4';
+      div.textContent = 'ยังไม่มีก๊วนของคุณ สร้างก๊วนใหม่ด้านบนได้เลย';
+      listEl.appendChild(div);
+      return;
+    }
+    for (const g of groups){
+      listEl.appendChild(card(g));
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', ()=>{
+    $('btnCreateGroup').addEventListener('click', async ()=>{
+      const name = $('newGroupName').value.trim();
+      if (!name) return alert('กรุณาตั้งชื่อก๊วน');
+      const gid = await GS.createGroup(name);
+      GS.setCurrentGroupId(gid);
+      $('newGroupName').value = '';
+      await GS.ensureOwnerMappings().then(reload);
+    });
+    GS.ensureOwnerMappings().then(reload);
+  });
+</script>
+
+<script src="assets/js/firebase_config.js"></script>
+<script type="module">
+  import { mountOwnerGroupSwitcher, getCurrentGroupId } from "./assets/js/group_state.js?v=20250812";
+  import { requireAuth } from "./assets/js/auth_guard.js";
+  requireAuth('login.html');
+  window.addEventListener('DOMContentLoaded', ()=>{
+    const el = document.getElementById('ownerGroupSwitcher');
+    if (el) mountOwnerGroupSwitcher(el);
+  });
+  // update switcher when group changes externally
+  addEventListener('group:changed', ()=>{
+    const el = document.getElementById('ownerGroupSwitcher');
+    if (el) mountOwnerGroupSwitcher(el);
+  });
+</script>
+
+
+        
+        
+
+        
+        
+
+    <!-- OWNER_SWITCHER_MOUNT_START -->
+    <script type="module">
+      import * as GS from "./assets/js/group_state.js?v=20250812";
+      async function mountAndAuto(){
+        try{
+          await GS.waitForAuthReady();
+          await GS.ensureOwnerMappings();
+          const el = document.getElementById('ownerGroupSwitcher');
+          if (el) await GS.mountOwnerGroupSwitcher(el);
+          if (GS.getCurrentGroupId() === 'default'){
+            const list = await GS.listOwnerGroups();
+            let gid = list.length ? list[0].id : null;
+            if (!gid){
+              const mine = await GS.listMyGroups();
+              gid = mine.length ? mine[0].id : null;
+            }
+            if (gid) GS.setCurrentGroupId(gid);
+          }
+        }catch(e){ console.warn('[switcher mount]', e); }
+      }
+      document.addEventListener('DOMContentLoaded', mountAndAuto);
+      addEventListener('group:changed', ()=>{
+        const el = document.getElementById('ownerGroupSwitcher');
+        if (el) GS.mountOwnerGroupSwitcher(el);
+      });
+    </script>
+    <!-- OWNER_SWITCHER_MOUNT_END -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+        <!-- BOOTSTRAP_MODAL_SAFETY_START -->
+        <script>
+        document.addEventListener('DOMContentLoaded', function(){
+          try {
+            var modals = Array.from(document.querySelectorAll('.modal[id]'));
+            var triggers = Array.from(document.querySelectorAll('[data-bs-toggle="modal"]:not([data-bs-target])'));
+            if (modals.length === 1 && triggers.length > 0) {
+              var id = '#' + modals[0].id;
+              triggers.forEach(function(t){ t.setAttribute('data-bs-target', id); });
+            }
+          } catch (e) { console.warn('[modal-safety]', e); }
+        });
+        </script>
+        <!-- BOOTSTRAP_MODAL_SAFETY_END -->
+        
+</body>
+</html>

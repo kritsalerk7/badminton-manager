@@ -1,0 +1,46 @@
+
+/* ui-hotfix.align.v2: force header & rows to share identical grid and paddings */
+
+:root{
+  --name-min: 260px;      /* min width for name column */
+  --col-toggle: 160px;    /* width for toggle column */
+  --row-gap: 12px;
+  --cell-pad-y: .75rem;
+  --cell-pad-x: 1rem;
+}
+
+/* Remove inconsistent item paddings and move to inner grid */
+.list-header.list-group-item,
+.day-row.list-group-item{
+  padding: 0 !important;
+}
+
+/* Identical grid for header and rows */
+.list-header .row-grid.right,
+.day-row .row-grid.right{
+  display: grid;
+  grid-template-columns: minmax(var(--name-min), 1fr) var(--col-toggle) minmax(120px, auto);
+  gap: var(--row-gap);
+  align-items: center;
+  padding: var(--cell-pad-y) var(--cell-pad-x);
+  box-sizing: border-box;
+}
+
+/* Center toggle in both header and rows */
+.toggle-col{ display:flex; align-items:center; justify-content:center; }
+.list-header .toggle-col{ justify-content:center; }
+
+/* Right align actions in both header and rows */
+.actions-col{ display:flex; justify-content:flex-end; }
+
+/* Prevent awkward wrap on header label */
+.list-header .toggle-col strong{ white-space: nowrap; font-weight: 600; }
+
+/* Optional: make header slightly distinct */
+.list-header{ background:#f8fafc; position: sticky; top: 0; z-index: 5; }
+
+/* Mobile tweaks */
+@media (max-width:576px){
+  :root{ --name-min: 180px; --col-toggle: 140px; }
+  .list-header .toggle-col strong{ font-size: .85rem; }
+}

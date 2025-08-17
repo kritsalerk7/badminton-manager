@@ -1,0 +1,30 @@
+
+/* ui-responsive.players.v2.css
+   Force 2-row mobile layout for the right list, overriding any previous grid columns.
+*/
+@media (max-width: 640px){
+  /* Force the grid to 2 columns + 2 rows with areas */
+  .list-header .row-grid.right,
+  .day-row .row-grid.right{
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    grid-template-areas:
+      "nm act"
+      "tgl tgl" !important;
+    gap: 8px 10px !important;
+    align-items: center !important;
+  }
+  /* Map columns to areas explicitly */
+  .list-header .name-col,
+  .day-row .name-col{ grid-area: nm !important; min-width: 0 !important; }
+  .list-header .toggle-col,
+  .day-row .toggle-col{ grid-area: tgl !important; display:flex !important; justify-content:center !important; }
+  .list-header .actions-col,
+  .day-row .actions-col{ grid-area: act !important; display:flex !important; justify-content:flex-end !important; }
+
+  /* Remove fixed toggle width on mobile, let it center */
+  :root{ --col-toggle: auto; }
+
+  /* Compact header text */
+  .list-header .toggle-col strong{ font-size: .9rem !important; white-space: nowrap !important; }
+}

@@ -1,0 +1,61 @@
+
+.courts-page .vlist{display:flex;flex-direction:column;gap:.5rem;max-height:75vh;overflow:auto}
+.courts-page .person{display:flex;align-items:center;justify-content:space-between;border:1px solid #e9ecef;border-radius:.6rem;padding:.5rem .75rem;background:#fff}
+.courts-page .person .meta{font-size:.8rem;color:#6c757d}
+.courts-page .person .actions .btn{margin-left:.25rem}
+.courts-page .badge-wait{background:#e7f1ff;color:#0d6efd}
+.courts-page .badge-level{background:#e9f7ef;color:#198754}
+.courts-page .match-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.75rem}
+.courts-page .match-card{border:1px solid #e9ecef;border-radius:.6rem;background:#fff}
+.courts-page .match-card .card-header{background:#f8f9fa}
+.courts-page .team{border:1px dashed #dee2e6;border-radius:.5rem;padding:.5rem}
+.courts-page .slot{min-height:36px;padding:.25rem .5rem;border:1px dashed transparent;border-radius:.4rem;background:#fdfdfe}
+.courts-page .slot.drag-over{border-color:#0d6efd;background:#eef5ff}
+.courts-page .ghost{opacity:.5}
+.courts-page .playing-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.75rem}
+.courts-page .playing-card{border:1px solid #e9ecef;border-radius:.6rem;background:#fff}
+.courts-page .timer{font-feature-settings:'tnum';font-variant-numeric:tabular-nums}
+
+
+
+/* DnD helpers (append to courts.css) */
+.draggable { cursor: grab; user-select:none; }
+.drag-over { outline: 2px dashed #0d6efd; border-radius: .5rem; }
+.slot { min-height: 28px; padding:4px 6px; border-radius:.5rem; background:#f8f9fa; }
+.slot .name { display:inline-block; padding:2px 6px; border-radius:.375rem; background:#fff; border:1px solid #e9ecef; }
+.slot.empty { opacity:.6; font-style:italic; }
+.badge-wait { font-variant-numeric: tabular-nums; }
+
+/* Queue grid layout */
+.queue-grid{
+  display:grid;
+  grid-template-columns: 1fr 120px 120px 140px;
+  gap: 8px;
+  align-items:center;
+}
+.queue-grid .qhead{
+  font-weight:600;
+  color:#6c757d;
+  font-size:.875rem;
+  border-bottom:1px solid #e9ecef;
+  padding-bottom:4px;
+}
+.qrow{
+  display:grid;
+  grid-template-columns: 1fr 120px 120px 140px;
+  gap: 8px;
+  align-items:center;
+  background:#fff;
+  border:1px solid #eee;
+  border-radius:.5rem;
+  padding:.4rem .5rem;
+}
+.qrow.drag-over{ outline:2px dashed #0d6efd; }
+.qcell.q-name{ display:flex; align-items:center; gap:.4rem; }
+@media (max-width: 768px){
+  .queue-grid, .qrow{
+    grid-template-columns: 1fr 86px 92px 100px;
+    gap:6px;
+  }
+  .queue-grid .qhead{ font-size:.8rem; }
+}

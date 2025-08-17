@@ -1,0 +1,151 @@
+
+/* ui-responsive.players.all.css
+   One stylesheet to make the "ผู้มาเล่นวันนี้" list fit every screen size,
+   keeping header columns aligned with rows, and avoiding horizontal overflow.
+*/
+
+:root{
+  /* Flexible columns using clamp to adapt to widths */
+  --name-min: clamp(100px, 40vw, 360px);
+  --toggle-w: clamp(100px, 12vw, 160px);
+  --actions-min: 96px;
+
+  --row-gap: 10px;
+  --cell-pad-y: .65rem;
+  --cell-pad-x: .9rem;
+}
+
+
+
+/* Ensure the right list never overflows horizontally */
+#todayList, #dayList, #dayPlayers, #pickedMembers, [data-day-list]{
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Normalize list items: use inner grid padding, avoid double padding */
+#todayList .list-group-item,
+#dayList .list-group-item,
+#dayPlayers .list-group-item,
+#pickedMembers .list-group-item,
+[data-day-list] .list-group-item{
+  padding: 0; /* inner grid handles padding */
+  box-sizing: border-box;
+}
+
+/* Shared grid for header & rows (desktop/tablet default) */
+#todayList .row-grid.right,
+#dayList .row-grid.right,
+#dayPlayers .row-grid.right,
+#pickedMembers .row-grid.right,
+[data-day-list] .row-grid.right{
+  display: grid;
+  grid-template-columns: minmax(var(--name-min), 1fr) var(--toggle-w) minmax(var(--actions-min), auto);
+  gap: var(--row-gap);
+  align-items: center;
+  width: 100%;
+  padding: var(--cell-pad-y) var(--cell-pad-x);
+  box-sizing: border-box;
+}
+
+/* Header visuals */
+#todayList .list-header,
+#dayList .list-header,
+#dayPlayers .list-header,
+#pickedMembers .list-header,
+[data-day-list] .list-header{
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+/* Column alignment helpers */
+#todayList .toggle-col, #dayList .toggle-col, #dayPlayers .toggle-col, #pickedMembers .toggle-col, [data-day-list] .toggle-col{
+  display:flex; align-items:center; justify-content:center;
+}
+#todayList .actions-col, #dayList .actions-col, #dayPlayers .actions-col, #pickedMembers .actions-col, [data-day-list] .actions-col{
+  display:flex; justify-content:flex-end; gap: 8px;
+}
+
+/* Name: prevent layout push by long strings */
+#todayList .name-col .fw-semibold,
+#dayList .name-col .fw-semibold,
+#dayPlayers .name-col .fw-semibold,
+#pickedMembers .name-col .fw-semibold,
+[data-day-list] .name-col .fw-semibold{
+  display:inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Toggle pill sizing (compatible with previous toggle HTML) */
+.btn-arrive .tgl-track{ width: 52px; height: 28px; border-radius: 999px; background: #e5e7eb; position: relative; box-shadow: inset 0 0 0 2px #e5e7eb; transition: background .2s, box-shadow .2s; display:inline-block; }
+.btn-arrive .tgl-thumb{ width: 22px; height: 22px; border-radius: 50%; background: #fff; position:absolute; top:3px; left:3px; transition: transform .2s, background .2s, box-shadow .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.btn-arrive[data-state="on"] .tgl-track{ background: #19875430; box-shadow: inset 0 0 0 2px #198754; }
+.btn-arrive[data-state="on"] .tgl-thumb{ transform: translateX(24px); background: #198754; }
+
+/* --- Breakpoints --- */
+
+/* iPad / Medium screens: tighten columns to avoid overflow */
+@media (min-width: 641px) and (max-width: 1024px){
+  :root{ --name-min: clamp(180px, 42vw, 300px); --toggle-w: clamp(110px, 14vw, 150px); --cell-pad-x: .8rem; }
+ 
+}
+
+/* Narrow tablets & large phones: switch to 2-row layout */
+@media (max-width: 640px){
+  /* Two-row grid using areas: Row1 = name | actions, Row2 = toggle full width */
+  #todayList .row-grid.right,
+  #dayList .row-grid.right,
+  #dayPlayers .row-grid.right,
+  #pickedMembers .row-grid.right,
+  [data-day-list] .row-grid.right{
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "nm act"
+      "tgl tgl";
+    gap: 10px 12px;
+  }
+  #todayList .name-col, #dayList .name-col, #dayPlayers .name-col, #pickedMembers .name-col, [data-day-list] .name-col{ grid-area: nm; min-width: 0; }
+  #todayList .toggle-col, #dayList .toggle-col, #dayPlayers .toggle-col, #pickedMembers .toggle-col, [data-day-list] .toggle-col{ grid-area: tgl; }
+  #todayList .actions-col, #dayList .actions-col, #dayPlayers .actions-col, #pickedMembers .actions-col, [data-day-list] .actions-col{ grid-area: act; }
+
+  /* Compact header on small screens */
+  #todayList .list-header .toggle-col strong,
+  #dayList .list-header .toggle-col strong,
+  #dayPlayers .list-header .toggle-col strong,
+  #pickedMembers .list-header .toggle-col strong,
+  [data-day-list] .list-header .toggle-col strong{
+    font-size: .9rem; white-space: nowrap;
+  }
+
+  /* Larger touch targets */
+  .day-row .btn, .day-row .btn-arrive{ min-height: 42px; }
+
+  /* Reduce padding slightly */
+  :root{ --cell-pad-y: .55rem; --cell-pad-x: .75rem; }
+}
+
+/* Very small screens: extra compact */
+@media (max-width: 420px){
+  #todayList .row-grid.right,
+  #dayList .row-grid.right,
+  #dayPlayers .row-grid.right,
+  #pickedMembers .row-grid.right,
+  [data-day-list] .row-grid.right{
+    gap: 8px 10px;
+  }
+  #todayList .list-header .toggle-col strong,
+  #dayList .list-header .toggle-col strong,
+  #dayPlayers .list-header .toggle-col strong,
+  #pickedMembers .list-header .toggle-col strong,
+  [data-day-list] .list-header .toggle-col strong{
+    font-size: .85rem;
+  }
+}
+
+
