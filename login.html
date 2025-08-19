@@ -30,9 +30,10 @@
             <input id="password" type="password" class="form-control" placeholder="••••••••">
           </div>
           <div class="d-grid gap-2 mt-3">
-            <button id="btnEmailLogin" class="btn btn-primary"><i class="bi bi-box-arrow-in-right"></i> เข้าสู่ระบบ</button>
-
-            <hr class="my-2">
+<!-- แก้ปุ่มให้ระบุ type ชัดเจน -->
+<button id="btnEmailLogin" type="button" class="btn btn-primary">
+  <i class="bi bi-box-arrow-in-right"></i> เข้าสู่ระบบ
+</button>
 
           </div>
         </div>
@@ -45,43 +46,50 @@
   
   <script src="assets/js/firebase_config.js"></script>
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-    const app = initializeApp(window.FIREBASE_CONFIG);
-    const auth = getAuth(app);
-    // Optional: logout when visiting login.html?force=1
-    if (new URLSearchParams(location.search).get("force")==="1") {
-      try { const { signOut } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"); await signOut(auth); } catch(e) {}
+  const app = initializeApp(window.FIREBASE_CONFIG);
+  const auth = getAuth(app);
+
+  // ⬇️ แทน top-level await ด้วย IIFE ปลอดภัยกับ iPad Safari
+  (async () => {
+    const force = new URLSearchParams(location.search).get("force") === "1";
+    if (force) {
+      try {
+        const { signOut } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+        await signOut(auth);
+      } catch (e) {
+        console.warn("Auto sign-out failed", e);
+      }
     }
-    try {
-      } catch(e) { console.warn('Auto sign-out failed', e); }
+  })();
 
-    // ถ้าต้องการบังคับออกจากระบบเมื่อเข้าหน้า login ให้เปิดบรรทัดด้านล่าง
-    const $ = (id)=>document.getElementById(id);
+  const $ = (id) => document.getElementById(id);
 
-    function hook(id, fn){
-      const el = $(id);
-      if(!el){ console.warn('login: missing element id=', id); return; }
-      el.addEventListener('click', fn);
-    }
+  // ไม่ต้องรอ DOMContentLoaded เพราะสคริปต์อยู่ท้าย body แล้ว
+  const btn = $("btnEmailLogin");
+  if (!btn) console.warn("login: missing #btnEmailLogin");
+  else {
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const email = $("email")?.value?.trim() || "";
+      const pass = $("password")?.value || "";
+      if (!email || !pass) { alert("กรอกอีเมลและรหัสผ่านให้ครบ"); return; }
 
-    document.addEventListener('DOMContentLoaded', ()=>{
-   
-      hook('btnEmailLogin', async ()=>{
-        try{
-			
-          const email = $('email')?.value || '';
-          const pass = $('password')?.value || '';
-          await signInWithEmailAndPassword(auth, email, pass);
-		  alert("ff");
-          location.href = 'index.html';
-        }catch(e){ alert(e.code || e.message); }
-      });
+      btn.disabled = true;
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        location.href = "index.html";
+      } catch (e) {
+        alert(e.code || e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }, { passive: false });
+  }
+</script>
 
-     
-    }); 
-  </script>
 
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
