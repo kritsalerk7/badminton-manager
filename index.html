@@ -1331,6 +1331,7 @@ if (!state.todays.length) {
 
 
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/th.js"></script>
 <!-- PICKDATE_MARKS_ADDON_START -->
 <script type="module">
   import * as GS from "./assets/js/group_state.js?v=20250812";
@@ -1338,6 +1339,7 @@ if (!state.todays.length) {
 
   const db = getFirestore();
   const pick = document.getElementById('pickDate');
+  if (pick) { try{ pick.setAttribute('type','text'); }catch(_){} if(!pick.value){ const d=new Date(); pick.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; } }
   if (pick && window.flatpickr){
     const getGroupId = ()=> (GS && typeof GS.getCurrentGroupId === 'function') ? GS.getCurrentGroupId() : 'default';
 
@@ -1375,7 +1377,11 @@ if (!state.todays.length) {
       instance.redraw();
     }
 
-    const fp = flatpickr(pick, {
+    const fp = flatpickr(pick, { 
+        locale: (flatpickr.l10ns && flatpickr.l10ns.th) ? flatpickr.l10ns.th : undefined,
+        altInput: true,
+        altFormat: 'd/m/Y',
+        disableMobile: true,
 
       
       dateFormat: 'Y-m-d',

@@ -79,6 +79,8 @@
   .lv-5{ background:#dc3545; }
 
   .drag-handle{cursor:grab;color:#6c757d;}
+
+  .flatpickr-day.has-play{ position:relative; }
 </style>
 
 
@@ -202,6 +204,8 @@
             <div id="expPeopleCount" class="text-muted small mb-1 d-none">จำนวนผู้ที่คิดเงิน: <span id="expPeopleCountValue">0</span> คน</div>
             <div id="expPerPersonInfo" class="alert alert-info py-2 px-3 d-none">
  <h4>ยอดค่าใช้จ่าย ต่อคน : <span id="expPerPersonValue">0</span> บาท </h4><span>1-4 เกม คิด 80 บาท</span>
+
+            <div id="expResetInfo" class="text-muted small mb-2 d-none">คำนวณหลังรีเซ็ตเวลา <span id="expResetTime">--:--</span></div>
 </div>
 <div class="table-responsive">
               <table class="table table-sm align-middle" id="expTable">
@@ -416,6 +420,41 @@ window.expense = (function(){
   }
 
   function fmt(n){ return (Number(n)||0).toLocaleString('th-TH'); }
+  // === Plan A helpers: resetAt filtering ===
+  async function getResetAt(){
+    try{
+      const db = getDb(); if (!db) return null;
+      const g = gid();
+      const dkey = dateKey();
+      const docSnap = await db.collection('groups').doc(g)
+        .collection('play_sessions').doc(dkey).get();
+      if (!docSnap.exists) return null;
+      const x = docSnap.data() || {};
+      const t = x.resetAt;
+      return (t && t.toDate) ? t.toDate() : (t ? new Date(t) : null);
+    }catch(e){ console.warn('[getResetAt]', e); return null; }
+  }
+
+  async function rebuildGamesMapAfterReset(resetAt){
+    try{
+      const db = getDb(); if (!db) return new Map();
+      const g = gid();
+      const dkey = dateKey();
+      const ref = db.collection('groups').doc(g)
+        .collection('play_sessions').doc(dkey).collection('matches');
+      const snap = await ref.where('status','==','finished').get();
+      const filtered = new Map();
+      snap.forEach(doc=>{
+        const m = doc.data()||{};
+        const end = m.endAt && m.endAt.toDate ? m.endAt.toDate() : (m.endAt ? new Date(m.endAt) : null);
+        if (resetAt && end && end < resetAt) return; // ignore matches finished before reset
+        const P = Array.from(m.players||[]).filter(Boolean);
+        P.forEach(p=>{ if (p && p.id){ filtered.set(p.id, (filtered.get(p.id)||0)+1); } });
+      });
+      return filtered;
+    }catch(e){ console.warn('[rebuildGamesMapAfterReset]', e); return new Map(); }
+  }
+
 
   async function recalc(){
     const total = (Number(document.getElementById('expGameFee').value)||0) + (Number(document.getElementById('expShuttleFee').value)||0);
@@ -424,8 +463,10 @@ window.expense = (function(){
     const roundBaht = document.getElementById('expRound').checked;
 
     try{
-      const [players, gamesMap] = await Promise.all([loadParticipants(), countGamesByPlayer()]);
-      const playersUsed = Array.from(players||[]).filter(p => (gamesMap.get(p.id)||0) > 0);
+      const [players, rawMap, resetAt] = await Promise.all([loadParticipants(), countGamesByPlayer(), getResetAt()]);
+      let gamesMap = rawMap;
+      if (resetAt){ gamesMap = await rebuildGamesMapAfterReset(resetAt); }
+const playersUsed = Array.from(players||[]).filter(p => (gamesMap.get(p.id)||0) > 0);
 if (!playersUsed.length){
         showToast('ยังไม่มีรายชื่อผู้เล่นของวันนั้น', 'info', 2500);
       }
@@ -440,6 +481,21 @@ if (!playersUsed.length){
         if (peopleBar && peopleVal){
           peopleVal.textContent = String(playersUsed.length||0);
           peopleBar.classList.toggle('d-none', !(playersUsed.length>0));
+        }
+      }catch(_){}
+
+// Update resetAt info line
+      try{
+        const bar = document.getElementById('expResetInfo');
+        const tspan = document.getElementById('expResetTime');
+        if (bar && tspan){
+          if (resetAt){
+            const hh = resetAt.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'});
+            tspan.textContent = hh;
+            bar.classList.remove('d-none');
+          }else{
+            bar.classList.add('d-none');
+          }
         }
       }catch(_){}
 // Update per-person bar for Equal mode
@@ -580,16 +636,27 @@ const tbody = document.querySelector('#expTable tbody');
   function toKey(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0'); return `${y}${m}${dd}`; }
   function monthBounds(date){ return { first: new Date(date.getFullYear(), date.getMonth(), 1), last: new Date(date.getFullYear(), date.getMonth()+1, 0) }; }
   async function fetchPlayDaysForMonth(baseDate){
-    try{
-      const db = window.firebase?.firestore?.(); if (!db) return new Set();
-      const gid = (localStorage.getItem('currentGroupId')) || 'default';
-      const FieldPath = window.firebase.firestore.FieldPath;
-      const b = monthBounds(baseDate);
-      const firstKey = toKey(b.first), lastKey = toKey(b.last);
-      const snap = await db.collection('groups').doc(gid).collection('play_sessions')
-        .orderBy(FieldPath.documentId()).startAt(firstKey).endAt(lastKey).get();
-      const set = new Set();
-      snap.forEach(doc=>{ const id = doc.id; if (/^\d{8}$/.test(id)){ set.add(`${id.slice(0,4)}-${id.slice(4,6)}-${id.slice(6,8)}`); } });
+  try{
+    const db = getDb(); if (!db) return new Set();
+    const gid = (localStorage.getItem('currentGroupId')) || 'default';
+    const FieldPath = window.firebase.firestore.FieldPath;
+    const b = monthBounds(baseDate);
+    const firstKey = toKey(b.first), lastKey = toKey(b.last);
+    const snap = await db.collection('groups').doc(gid).collection('play_sessions')
+      .orderBy(FieldPath.documentId()).startAt(firstKey).endAt(lastKey).get();
+    const set = new Set();
+    snap.forEach(doc=>{
+      const id = doc.id || '';
+      if (/^\d{8}$/.test(id)){
+        set.add(`${id.slice(0,4)}-${id.slice(4,6)}-${id.slice(6,8)}`);
+      }
+    });
+    return set;
+  }catch(e){
+    console.warn('[fetchPlayDaysForMonth]', e);
+    return new Set();
+  }
+}$/.test(id)){ set.add(`${id.slice(0,4)}-${id.slice(4,6)}-${id.slice(6,8)}`); } });
       return set;
     }catch(e){ console.warn('[fetchPlayDaysForMonth]', e); return new Set(); }
   }
@@ -612,20 +679,42 @@ const tbody = document.querySelector('#expTable tbody');
  
       if (dp){
         const popFP = flatpickr(dp, {
-          locale: (flatpickr.l10ns && flatpickr.l10ns.th) ? flatpickr.l10ns.th : undefined,
-          altInput: true,
-          altFormat: "d/m/Y",
-          dateFormat: "Y-m-d",
-          defaultDate: dp.value,
-          disableMobile: true,
-          onDayCreate: function(dObj, dStr, fp, dayElem){
-            const iso = dayElem.dateObj ? toISO(dayElem.dateObj) : dStr;
-            if (window._exp_playISO && window._exp_playISO.has(iso)){ dayElem.classList.add('has-play'); }
-          },
-          onChange: function(selectedDates, dateStr, fp){ if (inlineFP){ inlineFP.setDate(dateStr, true);} dp.value = dateStr; dp.dispatchEvent(new Event('change')); },
-          onMonthChange: async function(selectedDates, dateStr, fp){ const pivot=new Date(fp.currentYear, fp.currentMonth, 1); window._exp_playISO = await fetchPlayDaysForMonth(pivot); fp.redraw(); },
-          onYearChange:  async function(selectedDates, dateStr, fp){ const pivot=new Date(fp.currentYear, fp.currentMonth, 1); window._exp_playISO = await fetchPlayDaysForMonth(pivot); fp.redraw(); }
-        });
+  locale: (flatpickr.l10ns && flatpickr.l10ns.th) ? flatpickr.l10ns.th : undefined,
+  altInput: true,
+  altFormat: "d/m/Y",
+  dateFormat: "Y-m-d",
+  defaultDate: dp.value,
+  disableMobile: true,
+  onDayCreate: function(dObj, dStr, fp, dayElem){
+    const iso = dayElem.dateObj ? toISO(dayElem.dateObj) : dStr;
+    if (window._exp_playISO && window._exp_playISO.has(iso)){
+      dayElem.classList.add('has-play');
+    }
+  },
+  onChange: function(selectedDates, dateStr, fp){
+    if (selectedDates && selectedDates[0]){
+      const d = selectedDates[0];
+      const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+      const iso = `${y}-${m}-${dd}`;
+      dp.value = iso;
+      dp.dispatchEvent(new Event('change'));
+    }
+  },
+  onMonthChange: async function(selectedDates, dateStr, fp){
+    try{
+      const pivot = new Date(fp.currentYear, fp.currentMonth, 1);
+      window._exp_playISO = await fetchPlayDaysForMonth(pivot);
+      fp.redraw();
+    }catch(e){ console.warn('[flatpickr:onMonthChange]', e); }
+  },
+  onYearChange: async function(selectedDates, dateStr, fp){
+    try{
+      const pivot = new Date(fp.currentYear, fp.currentMonth, 1);
+      window._exp_playISO = await fetchPlayDaysForMonth(pivot);
+      fp.redraw();
+    }catch(e){ console.warn('[flatpickr:onYearChange]', e); }
+  }
+});
         if (!inlineFP){ try{ const seed = popFP.selectedDates?.[0] || new Date(); window._exp_playISO = await fetchPlayDaysForMonth(seed); popFP.redraw(); }catch(_){} }
       }
     })();

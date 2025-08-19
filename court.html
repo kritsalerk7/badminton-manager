@@ -1424,16 +1424,17 @@ const mref = doc(db, "groups", gid(), "play_sessions", dateKey, "matches", id);
 
     // จัดทีม A/B จาก players (คู่=4คน → [0,1]=A, [2,3]=B; เดี่ยว=2คน)
     let teamA = [], teamB = [];
-    if (match && Array.isArray(match.players)){
-      const arr = match.players;
-      if ((match.type||'doubles') === 'singles'){
-        teamA = [arr[0]?.name || '-'];
-        teamB = [arr[1]?.name || '-'];
-      }else{
-        teamA = [arr[0]?.name || '-', arr[1]?.name || '-'];
-        teamB = [arr[2]?.name || '-', arr[3]?.name || '-'];
-      }
-    }
+if (match && Array.isArray(match.players)){
+  const arr = match.players;
+  const btn = (p)=> p ? `${p.name||p.nickname||p.displayName||'-'}` : '-';
+  if ((match.type||'doubles') === 'singles'){
+    teamA = [ btn(arr[0]) ];
+    teamB = [ btn(arr[1]) ];
+  } else {
+    teamA = [ btn(arr[0]), btn(arr[1]) ];
+    teamB = [ btn(arr[2]), btn(arr[3]) ];
+  }
+}
 
     return `
     <div class="court-card position-relative border rounded-3 mb-2">
@@ -1721,7 +1722,7 @@ document.getElementById('btnRandom4')?.addEventListener('click', async ()=>{
   // ผูก flatpickr เฉพาะ “หน้าที่แสดงผลปฏิทิน”
   if (window.flatpickr && pick){
     const fp = flatpickr(pick, {
-      dateFormat: 'Y-m-d',
+      dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
       defaultDate: pick.value || undefined,
       onDayCreate: function(_, __, inst, dayElem){
         try{
@@ -1968,7 +1969,7 @@ function renderQueue(){
           ${p.paused ? `<span class="dot-red" title="หยุดเล่น"></span>` : ``}
           <span class="fw-semibold">${p.name} <span class="badge lv-${Number(p.level||1)}">${levelText(p.level)}</span></span>
         </td>
-        <td class="align-middle text-center">${p.gamesPlayed || 0}</td>
+        <td class="align-middle text-center">${p.gamesPlayed || 0}&nbsp;<button class="btn btn-link p-0 js-player-info" data-pid="${p.id||''}"><i class="bi bi-people-fill"></i></button></td>
         <td class="align-middle qcell q-wait">
           <span class="badge-wait ${waitClass}">\${waitTxt}</span>
         </td>
@@ -2490,6 +2491,271 @@ async function warnIfPairsOverLimit(matchObj){
 }
 </script>
 
+
+<!-- Player Co-Play Modal -->
+<div class="modal fade" id="playerCoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">สถิติการเล่น : <span id="pcmName">—</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="pcmEmpty" class="text-center text-muted d-none">-------- ยังไม่ได้เล่น -----------</div>
+        <div class="table-responsive" id="pcmTableWrap">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>ชื่อคน</th>
+                <th class="text-center">ทีมเดียวกัน</th>
+                <th class="text-center">คนละทีม</th>
+              </tr>
+            </thead>
+            <tbody id="pcmBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(async function(){
+  try{
+    const { getFirestore, collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const db = getFirestore();
+    const $ = (sel)=> document.querySelector(sel);
+    function gidSafe(){ try{ return (typeof gid==='function')? gid(): (localStorage.getItem('currentGroupId')||'default'); }catch(_){ return 'default'; } }
+    function dkSafe(){
+      try{ if (typeof dateKey==='string' && /^\d{8}$/.test(dateKey)) return dateKey; }catch(_){}
+      try{ if (typeof dateKeyFromPicker==='function') return dateKeyFromPicker(); }catch(_){}
+      const dp = document.getElementById('datePicker'); if (dp && dp.value) return dp.value.replace(/-/g,'');
+      const d=new Date(), y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}${m}${da}`;
+    }
+    function keyPair(a,b){ if(!a||!b||a===b) return null; return a<b? `${a}|${b}` : `${b}|${a}`; }
+
+    async function buildCoMap(){
+      const g = gidSafe(), dk = dkSafe();
+      try{
+        const base = collection(db, "groups", g, "play_sessions", dk, "matches");
+        let snap;
+        try{ snap = await getDocs(query(base, where("status","in",["live","finished"]))); }
+        catch(_){ snap = await getDocs(base); }
+        const map = new Map(); const names = new Map();
+        snap.forEach(doc=>{
+          const m = doc.data()||{};
+          const P = Array.isArray(m.players)? m.players.filter(Boolean): [];
+          const ids = P.map(x=> x && x.id).filter(Boolean);
+          P.forEach(p=>{ if(p&&p.id){ names.set(p.id, p.name||p.nickname||p.displayName||p.id); } });
+          if (ids.length<2) return;
+          const isSingles = (String(m.type||m.gameType||m.mode||'').toLowerCase().startsWith('s')) || ids.length===2;
+          const A = isSingles ? [ids[0]].filter(Boolean) : [ids[0], ids[1]].filter(Boolean);
+          const B = isSingles ? [ids[1]].filter(Boolean) : [ids[2], ids[3]].filter(Boolean);
+          for (let i=0;i<A.length;i++) for (let j=i+1;j<A.length;j++){ const k=keyPair(A[i],A[j]); if(!k) continue; const cur=map.get(k)||{same:0,cross:0}; cur.same++; map.set(k,cur); }
+          for (let i=0;i<B.length;i++) for (let j=i+1;j<B.length;j++){ const k=keyPair(B[i],B[j]); if(!k) continue; const cur=map.get(k)||{same:0,cross:0}; cur.same++; map.set(k,cur); }
+          for (const a of A) for (const b of B){ const k=keyPair(a,b); if(!k) continue; const cur=map.get(k)||{same:0,cross:0}; cur.cross++; map.set(k,cur); }
+        });
+        return {map, names};
+      }catch(e){ console.warn('[co-map]', e); return {map:new Map(), names:new Map()}; }
+    }
+
+    window.openPlayerCoModal = async function(pid){
+      if (!pid) return;
+      const title = document.getElementById('pcmName');
+      const body  = document.getElementById('pcmBody');
+      const wrap  = document.getElementById('pcmTableWrap');
+      const empty = document.getElementById('pcmEmpty');
+      if (body) body.innerHTML = '';
+      if (title) title.textContent = pid;
+
+      const {map, names} = await buildCoMap();
+      const rows=[];
+      map.forEach((v,k)=>{
+        const [a,b]=k.split('|');
+        if (a===pid || b===pid){
+          const other = (a===pid)? b : a;
+          rows.push({ id: other, same: v.same||0, cross: v.cross||0 });
+        }
+      });
+      rows.sort((x,y)=> (y.same+y.cross) - (x.same+x.cross));
+
+      if (!rows.length){
+        wrap && wrap.classList.add('d-none');
+        empty && empty.classList.remove('d-none');
+      }else{
+        wrap && wrap.classList.remove('d-none');
+        empty && empty.classList.add('d-none');
+        rows.forEach(r=>{
+          const tr = document.createElement('tr');
+          const n  = names.get(r.id) || r.id;
+          tr.innerHTML = `<td>${n}</td><td class="text-center">${r.same}</td><td class="text-center">${r.cross}</td>`;
+          body.appendChild(tr);
+        });
+      }
+      const disp = (names.get(pid) || pid);
+      title && (title.textContent = disp);
+      const el = document.getElementById('playerCoModal');
+      if (el && window.bootstrap && bootstrap.Modal){
+        bootstrap.Modal.getOrCreateInstance(el).show();
+      }else{
+        el?.classList.add('show');
+      }
+    };
+
+    // Delegation: player chips + live names buttons
+    document.addEventListener('click', (e)=>{
+      const chip = e.target.closest('.player-chip, .js-player-info');
+      if (chip && chip.dataset && chip.dataset.pid){
+        e.preventDefault();
+        window.openPlayerCoModal(chip.dataset.pid);
+      }
+    });
+
+  }catch(e){ console.warn('[player modal init]', e); }
+})();
+</script>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  try{
+    const el = document.getElementById('datePicker');
+    if (el && window.flatpickr){
+      // if instance exists but no altInput, re-init minimally
+      if (el._flatpickr && !el._flatpickr.config.altInput){
+        const val = el._flatpickr.selectedDates?.[0] || el.value || null;
+        el._flatpickr.destroy();
+        flatpickr(el, {
+          dateFormat: 'Y-m-d',
+          altInput: true,
+          altFormat: 'd/m/Y',
+          defaultDate: val || undefined
+        });
+      }
+    }
+  }catch(e){ console.warn('[datePicker alt d/m/Y]', e); }
+});
+</script>
+
+
+
+<!-- Dev Wipe Panel (auto when ?dev=1) -->
+<script>
+// ===== Modular Firestore bootstrap (avoid compat mix) =====
+async function ensureDb(){
+  try{
+    if (window._modDb) return window._modDb;
+    const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    const fsMod  = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    let app = null;
+    try{ app = appMod.getApp(); }catch(_){
+      let cfg = window.FIREBASE_CONFIG || window.firebaseConfig || null;
+      if (!cfg && window.firebase && window.firebase.app){
+        try{ cfg = window.firebase.app().options || null; }catch(_){}
+      }
+      if (!cfg) throw new Error("ไม่พบ Firebase config (FIREBASE_CONFIG)");
+      app = appMod.initializeApp(cfg);
+    }
+    const db = fsMod.getFirestore(app);
+    window._modDb = db; return db;
+  }catch(e){ console.warn("[ensureDb]", e); throw e; }
+}
+async function __fw(){ return await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"); }
+function gidSafe(){
+  try{ return (typeof gid==='function') ? gid() : (localStorage.getItem('currentGroupId') || 'default'); }
+  catch(_){ return localStorage.getItem('currentGroupId') || 'default'; }
+}
+function dateKeySafe(){
+  try{
+    if (typeof dateKey === 'string' && /^\d{8}$/.test(dateKey)) return dateKey;
+    if (typeof dateKeyFromPicker === 'function') return dateKeyFromPicker();
+    const dp = document.getElementById('datePicker');
+    if (dp && dp.value) return dp.value.replace(/-/g,'');
+  }catch(_){}
+  const d = new Date(); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0');
+  return `${y}${m}${day}`;
+}
+async function __batchDeleteCol(db, colRef, page=300){
+  const { getDocs, writeBatch, limit, query } = await __fw();
+  while(true){
+    const q = query(colRef, limit(page));
+    const snap = await getDocs(q);
+    if (snap.empty) break;
+    const wb = writeBatch(db);
+    snap.forEach(d => wb.delete(d.ref));
+    await wb.commit();
+    await new Promise(r=>setTimeout(r, 20));
+  }
+}
+async function __wipeSessionDoc(db, sessionDocRef){
+  const { collection, deleteDoc } = await __fw();
+  const subs = ["participants","matches","queue_events","expense","expenses"];
+  for (const s of subs){
+    try{ await __batchDeleteCol(db, collection(sessionDocRef, s)); }catch(e){ console.warn('[wipe sub]', s, e); }
+  }
+  try{ await deleteDoc(sessionDocRef); }catch(e){ console.warn('[delete session doc]', e); }
+}
+async function hardWipeToday(){
+  try{
+    const ok = confirm("ล้างข้อมูลของวันนี้ทั้งหมด? (ลบ matches, participants ฯลฯ)");
+    if (!ok) return;
+    const { doc } = await __fw();
+    const db = await ensureDb();
+    const sref = doc(db, "groups", gidSafe(), "play_sessions", dateKeySafe());
+    await __wipeSessionDoc(db, sref);
+    window.__coIdx = { dk:null, map:new Map() };
+    try{ window.showToast && showToast("ล้างข้อมูลของวันนี้แล้ว", "success"); }catch(_){}
+  }catch(e){
+    console.warn("[hardWipeToday]", e);
+    alert("ล้างข้อมูลไม่สำเร็จ: " + (e && (e.message||e.code) || "unknown"));
+  }
+}
+async function hardWipeAll(){
+  try{
+    const phrase = prompt("พิมพ์ DELETE เพื่อลบข้อมูลการเล่นทั้งหมดของกลุ่มนี้");
+    if (phrase !== "DELETE") return;
+    const { collection, getDocs } = await __fw();
+    const db = await ensureDb();
+    const sessColl = collection(db, "groups", gidSafe(), "play_sessions");
+    const snap = await getDocs(sessColl);
+    let i=0;
+    for (const d of snap.docs){
+      await __wipeSessionDoc(db, d.ref);
+      if (++i % 10 === 0) await new Promise(r=>setTimeout(r, 30));
+    }
+    window.__coIdx = { dk:null, map:new Map() };
+    try{ window.showToast && showToast("ล้างข้อมูลทั้งหมดแล้ว", "success"); }catch(_){}
+  }catch(e){
+    console.warn("[hardWipeAll]", e);
+    alert("ล้างข้อมูลไม่สำเร็จ: " + (e && (e.message||e.code) || "unknown"));
+  }
+}
+// Floating Dev Panel
+(function(){
+  const boot = () => {
+    try{
+      const qs = new URLSearchParams(location.search);
+      const dev = qs.get('dev')==='1' || localStorage.getItem('devDanger')==='1';
+      if (!dev) return;
+      if (document.getElementById('devWipePanel')) return;
+      const panel = document.createElement('div');
+      panel.id = 'devWipePanel';
+      panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;display:flex;gap:8px;';
+      panel.innerHTML = '<button id="btnHardWipeToday" style="padding:6px 10px;border:1px solid #d33;background:#fff;color:#d33;border-radius:8px;cursor:pointer;">Wipe วันนี้</button>'+
+                        '<button id="btnHardWipeAll" style="padding:6px 10px;border:1px solid #b00;background:#b00;color:#fff;border-radius:8px;cursor:pointer;">Wipe ทั้งหมด</button>';
+      document.body.appendChild(panel);
+      document.getElementById('btnHardWipeToday').addEventListener('click', hardWipeToday);
+      document.getElementById('btnHardWipeAll').addEventListener('click', hardWipeAll);
+    }catch(e){ console.warn('[dev panel]', e); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true});
+  else boot();
+})();
+</script>
 </body>
 
 
