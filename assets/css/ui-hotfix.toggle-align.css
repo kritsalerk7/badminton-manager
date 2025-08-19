@@ -1,0 +1,28 @@
+
+/* ui-hotfix: align toggle header with toggle column, center contents, widen column */
+.list-header .row-grid.right,
+.day-row .row-grid.right{
+  grid-template-columns: minmax(var(--name-min, 260px), 1fr) 160px auto !important;
+}
+.toggle-col{ display:flex; align-items:center; justify-content:center; }
+.list-header .toggle-col{ justify-content:center; }
+.actions-col{ display:flex; justify-content:flex-end; }
+.list-header .actions-col{ justify-content:flex-end; }
+
+/* Make header label not wrap awkwardly */
+.list-header .toggle-col strong{
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: .95rem;
+}
+
+/* Ensure same paddings/visual rhythm */
+.list-header.list-group-item{
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+@media (max-width:576px){
+  .list-header .toggle-col strong{ font-size: .85rem; }
+}

@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>จัดการคอร์ท (Realtime)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/courts.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+  <style>
+  /* ป้าย mark บน flatpickr (ให้เหมือนหน้า index.html) */
+  .has-play .flatpickr-day{ position:relative; }
+  .flatpickr-day.has-play::after{
+    content:""; position:absolute; left:50%; bottom:6px; width:6px; height:6px;
+    margin-left:-3px; border-radius:50%; background:#ff6600;
+  }
+
+  /* การ์ดคอร์ท + แถบสถานะด้านบน */
+  .court-card { overflow:hidden; }
+  .court-card .status-bar { position:absolute; left:0; top:0; height:6px; width:100%; }
+  .court-card .status-live { background:#33cc00; }   /* playing = เขียว */
+  .court-card .status-idle { background:#6c757d; }   /* ว่าง = เทา */
+ 
+  /* กล่องทีม */
+  .team.card { border-radius: .75rem; }
+  .team .bi-person-fill { font-size: 1.1rem; }
+
+  /* คิวกว้างขึ้น (คุณปรับเลย์เอาต์ 5/3/4 ไปแล้ว ส่วนนี้คือสไตล์ตารางในคิว) */
+  .queue-grid{
+    display:grid;
+    grid-template-columns: 1.2fr 120px 120px 140px 100px; /* ชื่อ | ระดับ | เล่นแล้ว | สถานะ/รอ | หยุดเล่น */
+    gap:8px; align-items:center;
+  }
+  .queue-grid .qhead{
+    font-weight:600; color:#6c757d; font-size:.875rem;
+    border-bottom:1px solid #e9ecef; padding-bottom:4px;
+  }
+  .qrow{
+    display:grid; grid-template-columns:inherit; gap:8px; align-items:center;
+    background:#fff; border:1px solid #eee; border-radius:.5rem; padding:.4rem .5rem;
+  }
+  .qcell.q-name{ display:flex; align-items:center; gap:.4rem; }
+  .badge-wait{ font-variant-numeric: tabular-nums; }
+
+
+
+  .dot-red{
+    display:inline-block; width:8px; height:8px; border-radius:50%;
+    background:#dc3545; margin-right:6px;
+  }
+  .qrow.paused{ opacity:.65; }
+  @media (max-width: 992px){
+    .queue-grid{ grid-template-columns: 1fr 88px 88px 110px 80px; gap:6px; }
+  }
+
+  /* icon-only buttons equal size */
+  .btn-ico{ width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; padding:0; }
+  @media (max-width: 480px){ .btn-ico{ width:32px; height:32px; } }
+
+  /* DnD highlight */
+  .team-drop{ min-height: 86px; border:1px dashed var(--bs-border-color); }
+  .team-drop.drag-over{ background: rgba(13,110,253,.06); transition: background .2s; }
+
+  /* wait-no-bg */
+  .qcell.q-wait .badge-wait{
+    background: transparent !important;
+    color: #000 !important;
+    padding: 0;
+	font-size:10pt;
+    font-weight: 500;
+  }
+
+    .lv-1{ background:#6c757d; }
+  .lv-2{ background:#20c997; }
+  .lv-3{ background:#17a2b8; }
+  .lv-4{ background:#fd7e14; }
+  .lv-5{ background:#dc3545; }
+
+  .drag-handle{cursor:grab;color:#6c757d;}
+</style>
+
+
+
+<style>
+/* enforce one match per row */
+#standbyMatches{ display:block !important; }
+#standbyMatches .match-card{ width:100% !important; }
+</style>
+</head>
+<body data-init="1" class="courts-page bg-light">
+  <!-- EARLY_APP_INIT placeholder --><script src="assets/js/firebase_config.js"></script><script type="module">import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"; if (!getApps().length && window.FIREBASE_CONFIG) { initializeApp(window.FIREBASE_CONFIG); }</script>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary" >
+    <div class="container-fluid">
+      <a class="navbar-brand fw-semibold" href="#">Badminton Manage</a> <div class="ms-3" style="min-width:220px;display:inline-block;"><div id="ownerGroupSwitcher"></div></div>
+	  <span class="navbar-text small" style="color:#000;position:fixed;right:10px;bottom:1px;">Expense version 1.0.1</span>
+	
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="topNav">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link " href="index.html"><i class="bi bi-people-fill me-1"></i> จัดการสมาชิก</a></li>
+          <li class="nav-item"><a class="nav-link " href="court.html" id="navCourt"><i class="bi bi-columns-gap me-1"></i> จัดการคอร์ท</a></li>
+          <li class="nav-item"><a class="nav-link active" href="expense.html" id="navExpense"><i class="bi bi-cash-stack me-1"></i> จัดการค่าใช้จ่าย</a></li>
+          <li class="nav-item"><a class="nav-link " href="stat.html" id="navStats"><i class="bi bi-graph-up-arrow me-1"></i> สถิติ</a></li>
+        </ul>
+		<div class=" small"><button id="btnLogout" style="z-index:9999" class="btn btn-sm btn-outline-dark">Logout</button></div>
+		
+        
+      </div>
+    </div>
+  
+
+</nav>
+
+
+  <div class="container-fluid  py-3 ">
+    <div class="row mb-3">
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-body d-flex flex-wrap gap-2 align-items-center" id="filterBar" >
+			<i class="bi bi-calendar  me-2"></i><strong>ดูข้อมูลวันที่</strong>
+            <div id="calendarHost" class="ms-3 "  style = "display:none;"></div>
+					 <div class="ms-2">   
+							   <input type="date" class="form-control form-control-sm" id="datePicker" />
+					  </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+     <div class="container-fluid  py-3 ">
+			<div class="row mb-3">
+				   <div class="col-12"> 
+				          <!-- Expense data-->
+
+				          <!-- Expense data-->
+
+    <!-- Expense Calculator Card -->
+    <div class="row">
+      <div class="col-12">
+        <div class="card shadow-sm mb-3">
+          <div class="card-header bg-white">
+            <div class="d-flex flex-wrap align-items-center gap-3">
+              <h6 class="mb-0"><i class="bi bi-cash-coin me-2"></i>คำนวณค่าใช้จ่ายประจำวัน</h6>
+              <div class="ms-auto small text-muted">ใช้ข้อมูลวันที่จาก <code>#datePicker</code></div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="row g-3 align-items-end">
+              <div class="col-12 col-md-3">
+                <label class="form-label">ค่าเกมรวม (บาท)</label>
+                <input type="number" min="0" step="1" class="form-control" id="expGameFee" placeholder="เช่น 1200" value="0">
+              </div>
+              <div class="col-12 col-md-3">
+                <label class="form-label">ค่าลูก (บาท)</label>
+                <input type="number" min="0" step="1" class="form-control" id="expShuttleFee" placeholder="เช่น 300" value="0">
+              </div>
+              <div class="col-12 col-md-3">
+                <label class="form-label">รวมทั้งหมด (บาท)</label>
+                <input type="text" class="form-control" id="expTotal" value="0" readonly>
+              </div>
+              <div class="col-12 col-md-3">
+                <label class="form-label">โหมดคำนวณ</label>
+                <div class="btn-group w-100" role="group">
+                  <input type="radio" class="btn-check" name="expMode" id="modeEqual" autocomplete="off" checked>
+                  <label class="btn btn-outline-primary" for="modeEqual">หารเฉลี่ย</label>
+                  <input type="radio" class="btn-check" name="expMode" id="modeByGames" autocomplete="off">
+                  <label class="btn btn-outline-primary" for="modeByGames">ตามจำนวนเกม</label>
+                </div>
+              </div>
+              <div class="col-12 col-md-3">
+                <div class="form-check mt-2">
+                  <input class="form-check-input" type="checkbox" value="" id="expRound">
+                  <label class="form-check-label" for="expRound">
+                    ปัดเศษเป็นบาทถ้วน
+                  </label>
+                </div>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">หมายเหตุ</label>
+                <input type="text" class="form-control" id="expNote" placeholder="เช่น ลูก 2 หลอด + คอร์ทโปร">
+              </div>
+              <div class="col-12 col-md-3 d-grid">
+                <button class="btn btn-primary" id="expRecalc"><i class="bi bi-calculator me-1"></i> คำนวณใหม่</button>
+              </div>
+            </div>
+
+            <hr class="my-4">
+
+            <!--<div class="d-flex justify-content-between align-items-center mb-2">
+              <div class="small text-muted">ผู้เล่นของวันนั้นจะโหลดอัตโนมัติจากฐานข้อมูล</div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm" id="expExport"><i class="bi bi-filetype-csv me-1"></i>Export CSV</button>
+                <button class="btn btn-outline-success btn-sm" id="expSave"><i class="bi bi-save2 me-1"></i>บันทึกผล</button>
+              </div>
+            </div>-->
+
+            <div id="expPeopleCount" class="text-muted small mb-1 d-none">จำนวนผู้ที่คิดเงิน: <span id="expPeopleCountValue">0</span> คน</div>
+            <div id="expPerPersonInfo" class="alert alert-info py-2 px-3 d-none">
+ <h4>ยอดค่าใช้จ่าย ต่อคน : <span id="expPerPersonValue">0</span> บาท </h4><span>1-4 เกม คิด 80 บาท</span>
+</div>
+<div class="table-responsive">
+              <table class="table table-sm align-middle" id="expTable">
+                <thead>
+                  <tr>
+                    <th style="width:60px">#</th>
+                    <th>ชื่อ</th>
+                    <th class="text-end">จำนวนเกม</th>
+                    <th class="text-end">ยอดชำระ (บาท)</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+                <tfoot>
+                  <tr class="table-light">
+                    <th colspan="3" class="text-end">รวมยอดชำระทั้งหมด</th>
+                    <th class="text-end" id="expSum">0</th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+				  </div>
+			</div>
+    </div>
+<!-- Firebase compat SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+
+ <!-- AUTO_SELECT_OWNER_GROUP_START -->
+    <script type="module">
+      import * as GS from "./assets/js/group_state.js?v=20250812";
+      async function ensureActiveGroup() {
+        try {
+          if (GS.getCurrentGroupId() === 'default') {
+            await GS.ensureOwnerMappings();
+            const owners = await GS.listOwnerGroups();
+            if (owners.length > 0) {
+              GS.setCurrentGroupId(owners[0].id);
+            }
+          }
+        } catch (e) {
+          console.warn('[auto-select group] skipped:', e);
+        }
+      }
+      document.addEventListener('DOMContentLoaded', ensureActiveGroup);
+    </script>
+    <!-- AUTO_SELECT_OWNER_GROUP_END -->
+    
+
+                
+
+    <!-- OWNER_SWITCHER_MOUNT_START -->
+    <script type="module">
+      import * as GS from "./assets/js/group_state.js?v=20250812";
+      async function mountAndAuto(){
+        try{
+          await GS.waitForAuthReady();
+          await GS.ensureOwnerMappings();
+          const el = document.getElementById('ownerGroupSwitcher');
+          if (el) await GS.mountOwnerGroupSwitcher(el);
+          if (GS.getCurrentGroupId() === 'default'){
+            const list = await GS.listOwnerGroups();
+            let gid = list.length ? list[0].id : null;
+            if (!gid){
+              const mine = await GS.listMyGroups();
+              gid = mine.length ? mine[0].id : null;
+            }
+            if (gid) GS.setCurrentGroupId(gid);
+          }
+        }catch(e){ console.warn('[switcher mount]', e); }
+      }
+      document.addEventListener('DOMContentLoaded', mountAndAuto);
+      addEventListener('group:changed', ()=>{
+        const el = document.getElementById('ownerGroupSwitcher');
+        if (el) GS.mountOwnerGroupSwitcher(el);
+      });
+    </script>
+    <!-- OWNER_SWITCHER_MOUNT_END -->
+
+<script>
+// ==== Expense v1.0.0 Calculator ====
+window.expense = (function(){
+  function showToast(message, variant='danger', delay=3000){
+    const area = document.getElementById('toastArea');
+    if (!area){ alert(message); return; }
+    const div = document.createElement('div');
+    div.className = 'toast align-items-center border-0';
+    div.innerHTML = `<div class="d-flex">
+        <div class="toast-body"><i class="bi bi-info-circle me-2"></i>${message}</div>
+        <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>`;
+    area.appendChild(div);
+    const t = new bootstrap.Toast(div, { autohide: true, delay });
+    t.show();
+    div.addEventListener('hidden.bs.toast', ()=> div.remove());
+  }
+
+  function getDb(){
+    try{
+      if (!firebase.apps.length){
+        if (window.FIREBASE_CONFIG) firebase.initializeApp(window.FIREBASE_CONFIG);
+        else return null;
+      }
+      return firebase.firestore();
+    }catch(e){ console.warn(e); return null; }
+  }
+  function gid(){
+    try{
+      return (localStorage.getItem('currentGroupId')) || 'default';
+    }catch(_){ return 'default'; }
+  }
+  function dateKey(){
+    const el = document.getElementById('datePicker');
+    let v = el && el.value ? el.value : null;
+    if (!v){
+      const d=new Date();
+      v = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    return v.replaceAll('-','');
+  }
+
+  async function loadParticipants(){
+    const db = getDb(); if (!db) return [];
+    const snap = await db.collection('groups').doc(gid())
+        .collection('play_sessions').doc(dateKey())
+        .collection('participants').get();
+    const arr = [];
+    snap.forEach(d=>{
+      const x = d.data() || {};
+      arr.push({ id: d.id, name: x.name || d.id });
+    });
+    return arr;
+  }
+
+  async function countGamesByPlayer(){
+    const db = getDb(); if (!db) return new Map();
+    const ref = db.collection('groups').doc(gid())
+      .collection('play_sessions').doc(dateKey())
+      .collection('matches');
+    const snap = await ref.where('status','==','finished').get();
+    const map = new Map();
+    snap.forEach(docSnap=>{
+      const m = docSnap.data() || {};
+      const P = Array.from(m.players||[]).filter(Boolean);
+      P.forEach(p=>{
+        if (!p || !p.id) return;
+        map.set(p.id, (map.get(p.id)||0)+1);
+      });
+    });
+    return map;
+  }
+
+  function computePerPerson(total, mode, players, gamesMap, roundBaht){
+    const N = players.length || 0;
+    const rows = players.map(p=>({ id:p.id, name:p.name, games:(gamesMap.get(p.id)||0), pay:0 }));
+
+    if (N === 0) return { rows, sum: 0 };
+
+    if (mode === 'equal'){
+      // Equal split with special rule: <= 4 games => fixed 80 THB
+      const MIN_PER = 80;
+      const fixed = rows.filter(r=> r.games <= 4);
+      const others = rows.filter(r=> r.games > 4);
+      let fixedSum = 0;
+      fixed.forEach(r=> { r.pay = MIN_PER; fixedSum += MIN_PER; });
+      let remaining = total - fixedSum;
+      if (remaining < 0) remaining = 0;
+
+      if (others.length > 0){
+        const each = remaining / others.length;
+        others.forEach(r=> r.pay = each);
+      }else{
+        const each = remaining / rows.length;
+        rows.forEach(r=> r.pay += each);
+      }
+    } else {
+      const MIN_PER = 80;
+      let minSum = 0;
+      rows.forEach(r=>{
+        if (r.games <= 4){ r.pay = MIN_PER; minSum += MIN_PER; }
+      });
+      let remaining = total - minSum;
+      if (remaining < 0) remaining = 0;
+      const elig = rows.filter(r=> r.games > 4);
+      const sumW = elig.reduce((s,r)=> s + r.games, 0);
+      if (sumW > 0){
+        elig.forEach(r=> r.pay += remaining * (r.games / sumW));
+      }else{
+        rows.forEach(r=> r.pay += remaining / N);
+      }
+    }
+
+    let sum = rows.reduce((s,r)=> s + r.pay, 0);
+    if (roundBaht){
+      const rounded = rows.map(r=> ({...r, pay: Math.round(r.pay)}));
+      let rsum = rounded.reduce((s,r)=> s + r.pay, 0);
+      const totalRounded = Math.round(total);
+      const delta = totalRounded - rsum;
+      if (rounded.length && delta !== 0){
+        rounded[rounded.length-1].pay += delta;
+        rsum += delta;
+      }
+      return { rows: rounded, sum: rsum };
+    }
+    return { rows, sum };
+  }
+
+  function fmt(n){ return (Number(n)||0).toLocaleString('th-TH'); }
+
+  async function recalc(){
+    const total = (Number(document.getElementById('expGameFee').value)||0) + (Number(document.getElementById('expShuttleFee').value)||0);
+    document.getElementById('expTotal').value = fmt(total);
+    const mode = document.getElementById('modeByGames').checked ? 'byGames' : 'equal';
+    const roundBaht = document.getElementById('expRound').checked;
+
+    try{
+      const [players, gamesMap] = await Promise.all([loadParticipants(), countGamesByPlayer()]);
+      const playersUsed = Array.from(players||[]).filter(p => (gamesMap.get(p.id)||0) > 0);
+if (!playersUsed.length){
+        showToast('ยังไม่มีรายชื่อผู้เล่นของวันนั้น', 'info', 2500);
+      }
+      const { rows, sum } = computePerPerson(total, mode==='byGames'?'byGames':'equal', playersUsed, gamesMap, roundBaht);
+
+      
+      
+      // Update people count line
+      try{
+        const peopleBar = document.getElementById('expPeopleCount');
+        const peopleVal = document.getElementById('expPeopleCountValue');
+        if (peopleBar && peopleVal){
+          peopleVal.textContent = String(playersUsed.length||0);
+          peopleBar.classList.toggle('d-none', !(playersUsed.length>0));
+        }
+      }catch(_){}
+// Update per-person bar for Equal mode
+      try{
+        const infoBar = document.getElementById('expPerPersonInfo');
+        const infoVal = document.getElementById('expPerPersonValue');
+        if (mode === 'equal'){
+          const MIN_PER = 80;
+          // recompute equal-share figure for display
+          const fixedCount = rows.filter(r=> r.games <= 4).length;
+          const fixedSum = fixedCount * MIN_PER;
+          let remaining = total - fixedSum; if (remaining < 0) remaining = 0;
+          const othersCount = rows.filter(r=> r.games > 4).length;
+          let each = 0;
+          if (othersCount > 0){
+            each = remaining / othersCount;
+          }else{
+            // everyone fixed: treat as 80 + remaining/rows.length (to keep display meaningful)
+            each = (remaining / (rows.length||1)) + MIN_PER;
+          }
+          if (document.getElementById('expRound').checked){
+            each = Math.round(each);
+          }
+          infoVal.textContent = (Number(each)||0).toLocaleString('th-TH');
+          infoBar.classList.remove('d-none');
+        }else{
+          infoBar.classList.add('d-none');
+        }
+      }catch(_){}
+const tbody = document.querySelector('#expTable tbody');
+      tbody.innerHTML = rows.map((r,idx)=>`
+        <tr>
+          <td>${idx+1}</td>
+          <td>${r.name}</td>
+          <td class="text-end">${r.games}</td>
+          <td class="text-end">${fmt(r.pay)}</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('expSum').textContent = fmt(sum);
+      const diff = Math.round(total) - Math.round(sum);
+      if (Math.abs(diff) > 0){
+        showToast('ยอดรวมรายคนยังไม่เท่ากับยอดรวมทั้งหมด (จะถูกปรับอัตโนมัติเมื่อปัดเศษ/คำนวณ)', 'info', 3000);
+      }
+    }catch(err){
+      console.warn(err);
+      showToast('คำนวณไม่สำเร็จ: ' + (err.message||err), 'danger', 3500);
+    }
+  }
+
+  function exportCSV(){
+    const rows = Array.from(document.querySelectorAll('#expTable tbody tr')).map(tr=>{
+      const tds = tr.querySelectorAll('td');
+      return [tds[1].innerText.trim(), tds[2].innerText.trim(), tds[3].innerText.trim()];
+    });
+    const header = ['ชื่อ','จำนวนเกม','ยอดชำระ(บาท)'];
+    const csv = [header].concat(rows).map(r=> r.map(x=> `"${(x||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `expense_${dateKey()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function saveSummary(){
+    try{
+      const db = getDb(); if (!db) return showToast('ยังไม่ได้ตั้งค่า Firebase', 'danger');
+      const total = (Number(document.getElementById('expGameFee').value)||0) + (Number(document.getElementById('expShuttleFee').value)||0);
+      const mode = document.getElementById('modeByGames').checked ? 'byGames' : 'equal';
+      const roundBaht = document.getElementById('expRound').checked;
+      const note = document.getElementById('expNote').value||'';
+
+      const rows = Array.from(document.querySelectorAll('#expTable tbody tr')).map(tr=>{
+        const tds = tr.querySelectorAll('td');
+        return { name: tds[1].innerText.trim(), games: Number(tds[2].innerText.replace(/,/g,'')), pay: Number(tds[3].innerText.replace(/,/g,'')) };
+      });
+
+      const docRef = db.collection('groups').doc(gid()).collection('play_sessions').doc(dateKey()).collection('expense').doc('summary');
+      await docRef.set({
+        total, mode, roundBaht, note, rows, savedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      showToast('บันทึกผลเรียบร้อย', 'success', 2200);
+    }catch(err){
+      console.warn(err);
+      showToast('บันทึกไม่สำเร็จ: ' + (err.message||err), 'danger', 3500);
+    }
+  }
+
+  function boot(){
+    const bind = ()=>{
+      const g = Number(document.getElementById('expGameFee').value)||0;
+      const s = Number(document.getElementById('expShuttleFee').value)||0;
+      document.getElementById('expTotal').value = fmt(g+s);
+    };
+    ['expGameFee','expShuttleFee'].forEach(id=>{
+      document.getElementById(id).addEventListener('input', bind);
+      document.getElementById(id).addEventListener('change', bind);
+    });
+    document.getElementById('modeEqual').addEventListener('change', recalc);
+    document.getElementById('modeByGames').addEventListener('change', recalc);
+    document.getElementById('expRound').addEventListener('change', recalc);
+    document.getElementById('expRecalc').addEventListener('click', recalc);
+  //  document.getElementById('expExport').addEventListener('click', exportCSV);
+ //   document.getElementById('expSave').addEventListener('click', saveSummary);
+
+    const dp = document.getElementById('datePicker');
+    if (dp){
+      dp.addEventListener('change', recalc);
+      if (!dp.value){
+        const d=new Date(); dp.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      }
+    }
+    recalc();
+  }
+
+  document.addEventListener('DOMContentLoaded', boot);
+  return { recalc };
+})();
+</script>
+
+<!-- Firebase config & data layer -->
+<script>window.FS_LONGPOLL = true;</script>
+
+
+
+
+<!-- Toast container -->
+<div id="toastArea" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1080;"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+/* EXPENSE FP INIT */
+(function(){
+  function toISO(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${dd}`; }
+  function toKey(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0'); return `${y}${m}${dd}`; }
+  function monthBounds(date){ return { first: new Date(date.getFullYear(), date.getMonth(), 1), last: new Date(date.getFullYear(), date.getMonth()+1, 0) }; }
+  async function fetchPlayDaysForMonth(baseDate){
+    try{
+      const db = window.firebase?.firestore?.(); if (!db) return new Set();
+      const gid = (localStorage.getItem('currentGroupId')) || 'default';
+      const FieldPath = window.firebase.firestore.FieldPath;
+      const b = monthBounds(baseDate);
+      const firstKey = toKey(b.first), lastKey = toKey(b.last);
+      const snap = await db.collection('groups').doc(gid).collection('play_sessions')
+        .orderBy(FieldPath.documentId()).startAt(firstKey).endAt(lastKey).get();
+      const set = new Set();
+      snap.forEach(doc=>{ const id = doc.id; if (/^\d{8}$/.test(id)){ set.add(`${id.slice(0,4)}-${id.slice(4,6)}-${id.slice(6,8)}`); } });
+      return set;
+    }catch(e){ console.warn('[fetchPlayDaysForMonth]', e); return new Set(); }
+  }
+  function loadScript(src){ return new Promise((res, rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=()=>res(); s.onerror=rej; document.head.appendChild(s); }); }
+  async function ensureFlatpickr(){
+    if (typeof window.flatpickr !== 'undefined') return;
+    await loadScript('https://cdn.jsdelivr.net/npm/flatpickr');
+    await loadScript('https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/th.js');
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    (async ()=>{
+      await ensureFlatpickr();
+      const dp = document.getElementById('datePicker');
+      const host = document.getElementById('calendarHost');
+      if (dp){ try{ dp.setAttribute('type','text'); }catch(_){}
+        if (!dp.value){ dp.value = toISO(new Date()); }
+      }
+      window._exp_playISO = new Set();
+      let inlineFP = null;
+ 
+      if (dp){
+        const popFP = flatpickr(dp, {
+          locale: (flatpickr.l10ns && flatpickr.l10ns.th) ? flatpickr.l10ns.th : undefined,
+          altInput: true,
+          altFormat: "d/m/Y",
+          dateFormat: "Y-m-d",
+          defaultDate: dp.value,
+          disableMobile: true,
+          onDayCreate: function(dObj, dStr, fp, dayElem){
+            const iso = dayElem.dateObj ? toISO(dayElem.dateObj) : dStr;
+            if (window._exp_playISO && window._exp_playISO.has(iso)){ dayElem.classList.add('has-play'); }
+          },
+          onChange: function(selectedDates, dateStr, fp){ if (inlineFP){ inlineFP.setDate(dateStr, true);} dp.value = dateStr; dp.dispatchEvent(new Event('change')); },
+          onMonthChange: async function(selectedDates, dateStr, fp){ const pivot=new Date(fp.currentYear, fp.currentMonth, 1); window._exp_playISO = await fetchPlayDaysForMonth(pivot); fp.redraw(); },
+          onYearChange:  async function(selectedDates, dateStr, fp){ const pivot=new Date(fp.currentYear, fp.currentMonth, 1); window._exp_playISO = await fetchPlayDaysForMonth(pivot); fp.redraw(); }
+        });
+        if (!inlineFP){ try{ const seed = popFP.selectedDates?.[0] || new Date(); window._exp_playISO = await fetchPlayDaysForMonth(seed); popFP.redraw(); }catch(_){} }
+      }
+    })();
+  });
+})();
+</script>
+
+</body>
+
+
+</html>
+
+
+
+
