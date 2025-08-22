@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>จัดการคอร์ท (Realtime)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/courts.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+  <style>
+  /* ป้าย mark บน flatpickr (ให้เหมือนหน้า index.html) */
+  .has-play .flatpickr-day{ position:relative; }
+  .flatpickr-day.has-play::after{
+    content:""; position:absolute; left:50%; bottom:6px; width:6px; height:6px;
+    margin-left:-3px; border-radius:50%; background:#ff6600;
+  }
+
+  /* การ์ดคอร์ท + แถบสถานะด้านบน */
+  .court-card { overflow:hidden; }
+  .court-card .status-bar { position:absolute; left:0; top:0; height:6px; width:100%; }
+  .court-card .status-live { background:#33cc00; }   /* playing = เขียว */
+  .court-card .status-idle { background:#6c757d; }   /* ว่าง = เทา */
+ 
+  /* กล่องทีม */
+  .team.card { border-radius: .75rem; }
+  .team .bi-person-fill { font-size: 1.1rem; }
+
+  /* คิวกว้างขึ้น (คุณปรับเลย์เอาต์ 5/3/4 ไปแล้ว ส่วนนี้คือสไตล์ตารางในคิว) */
+  .queue-grid{
+    display:grid;
+    grid-template-columns: 1.2fr 120px 120px 140px 100px; /* ชื่อ | ระดับ | เล่นแล้ว | สถานะ/รอ | หยุดเล่น */
+    gap:8px; align-items:center;
+  }
+  .queue-grid .qhead{
+    font-weight:600; color:#6c757d; font-size:.875rem;
+    border-bottom:1px solid #e9ecef; padding-bottom:4px;
+  }
+  .qrow{
+    display:grid; grid-template-columns:inherit; gap:8px; align-items:center;
+    background:#fff; border:1px solid #eee; border-radius:.5rem; padding:.4rem .5rem;
+  }
+  .qcell.q-name{ display:flex; align-items:center; gap:.4rem; }
+  .badge-wait{ font-variant-numeric: tabular-nums; }
+
+
+
+  .dot-red{
+    display:inline-block; width:8px; height:8px; border-radius:50%;
+    background:#dc3545; margin-right:6px;
+  }
+  .qrow.paused{ opacity:.65; }
+  @media (max-width: 992px){
+    .queue-grid{ grid-template-columns: 1fr 88px 88px 110px 80px; gap:6px; }
+  }
+
+  /* icon-only buttons equal size */
+  .btn-ico{ width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; padding:0; }
+  @media (max-width: 480px){ .btn-ico{ width:32px; height:32px; } }
+
+  /* DnD highlight */
+  .team-drop{ min-height: 86px; border:1px dashed var(--bs-border-color); }
+  .team-drop.drag-over{ background: rgba(13,110,253,.06); transition: background .2s; }
+
+  /* wait-no-bg */
+  .qcell.q-wait .badge-wait{
+    background: transparent !important;
+    color: #000 !important;
+    padding: 0;
+	font-size:10pt;
+    font-weight: 500;
+  }
+
+    .lv-1{ background:#6c757d; }
+  .lv-2{ background:#20c997; }
+  .lv-3{ background:#17a2b8; }
+  .lv-4{ background:#fd7e14; }
+  .lv-5{ background:#dc3545; }
+
+  .drag-handle{cursor:grab;color:#6c757d;}
+</style>
+
+
+
+<style>
+/* enforce one match per row */
+#standbyMatches{ display:block !important; }
+#standbyMatches .match-card{ width:100% !important; }
+</style>
+</head>
+<body data-init="1" class="courts-page bg-light">
+  <!-- EARLY_APP_INIT placeholder --><script src="assets/js/firebase_config.js"></script><script type="module">import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"; if (!getApps().length && window.FIREBASE_CONFIG) { initializeApp(window.FIREBASE_CONFIG); }</script>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary" >
+    <div class="container-fluid">
+      <a class="navbar-brand fw-semibold" href="#">Badminton Manage</a> <div class="ms-3" style="min-width:220px;display:inline-block;"><div id="ownerGroupSwitcher"></div></div>
+	  <span class="navbar-text small" style="color:#000;position:fixed;right:10px;bottom:1px;">Stat version 1.0.0</span>
+	
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="topNav">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link " href="index.html"><i class="bi bi-people-fill me-1"></i> จัดการสมาชิก</a></li>
+          <li class="nav-item"><a class="nav-link " href="court.html" id="navCourt"><i class="bi bi-columns-gap me-1"></i> จัดการคอร์ท</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" id="navExpense"><i class="bi bi-cash-stack me-1"></i> จัดการค่าใช้จ่าย</a></li>
+          <li class="nav-item"><a class="nav-link active" href="stat.html" id="navStats"><i class="bi bi-graph-up-arrow me-1"></i> สถิติ</a></li>
+        </ul>
+		<div class=" small"><button id="btnLogout" style="z-index:9999" class="btn btn-sm btn-outline-dark">Logout</button></div>
+		
+        
+      </div>
+    </div>
+  
+
+</nav>
+
+
+  <div class="container-fluid  py-3 ">
+    <div class="row mb-3">
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-body d-flex flex-wrap gap-2 align-items-center" id="filterBar" >
+			<i class="bi bi-calendar  me-2"></i><strong>ดูข้อมูลวันที่</strong>
+            <div id="calendarHost" class="ms-3"></div>
+					 <div class="ms-2">   
+							   <input type="date" class="form-control form-control-sm" id="datePicker" />
+					  </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+     <div class="container-fluid  py-3 ">
+			<div class="row mb-3">
+				   <div class="col-12"> 
+				          <!-- Stat data-->
+
+				          <!-- Stat data-->				
+				  </div>
+			</div>
+    </div>
+<!-- Firebase compat SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<!-- Firebase config & data layer -->
+<script>window.FS_LONGPOLL = true;</script>
+
+
+
+
+<!-- ===== Advanced Stats (v1.1 with robust DB init) ===== -->
+<style>
+#advStats .card{ border-radius: .75rem; }
+#advStats table td, #advStats table th{ vertical-align: middle; }
+#advStats .mini{ font-size: .9rem; color:#6c757d; }
+#advStats .mono{ font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+
+<div id="advStats" class="container-fluid py-3">
+  <div class="row g-3">
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h5 class="mb-0">สรุปขั้นสูง (เฉพาะหลังรีเซ็ต)</h5>
+          <div class="mini">อัปเดตเมื่อ: <span id="advUpdatedAt">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12">
+      <div class="row g-3">
+        <div class="col-6 col-lg-3">
+          <div class="card shadow-sm"><div class="card-body">
+            <div class="mini">Peak Concurrency</div>
+            <div class="h4 mono mb-0" id="kpiPeak">—</div>
+          </div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="card shadow-sm"><div class="card-body">
+            <div class="mini">ช่วงเวลาเล่น (วัน)</div>
+            <div class="h6 mono mb-0"><span id="kpiSpanStart">—</span> – <span id="kpiSpanEnd">—</span></div>
+          </div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="card shadow-sm"><div class="card-body">
+            <div class="mini">ชนิดเกม</div>
+            <div class="mono"><span id="kpiSingles">0</span> singles</div>
+            <div class="mono"><span id="kpiDoubles">0</span> doubles</div>
+          </div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <div class="card shadow-sm"><div class="card-body">
+            <div class="mini">เวลาเฉลี่ยรอ (รวม)</div>
+            <div class="h4 mono mb-0" id="kpiAvgWaitAll">—</div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12">
+      <div class="card shadow-sm"><div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h6 class="mb-0">Court Utilization</h6>
+          <div class="mini">เฉลี่ยถ่วงน้ำหนัก: <span class="mono" id="utilOverall">—</span>%</div>
+        </div>
+        <div class="table-responsive mt-2">
+          <table class="table table-sm align-middle">
+            <thead><tr><th>คอร์ท</th><th class="text-end">ช่วงเวลา</th><th class="text-end">เวลาที่ใช้งาน</th><th class="text-end">Util %</th></tr></thead>
+            <tbody id="tblUtil"></tbody>
+          </table>
+        </div>
+      </div></div>
+
+<div class="col-12">
+      <div class="card shadow-sm"><div class="card-body">
+        <h6 class="mb-2">Pair Synergy (วันนี้)</h6>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead><tr><th>คู่ผู้เล่น</th><th class="text-end">ทีมเดียวกัน</th><th class="text-end">คนละทีม</th></tr></thead>
+            <tbody id="tblPairs"></tbody>
+          </table>
+        </div>
+      </div></div>
+
+<div class="col-12"><div class="row g-3">
+<div class="col-12 col-lg-6">
+      <div class="card shadow-sm"><div class="card-body">
+        <h6 class="mb-2">Top Participants</h6>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead><tr><th>#</th><th>ผู้เล่น</th><th class="text-end">แมตช์</th><th class="text-end">เวลาเล่นรวม</th><th class="text-end">รอเฉลี่ย</th></tr></thead>
+            <tbody id="tblTop"></tbody>
+          </table>
+        </div>
+      </div></div>
+<div class="col-12 col-lg-6">
+      <div class="card shadow-sm"><div class="card-body">
+        <h6 class="mb-2">Duration Distribution (นาที)</h6>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead><tr><th>ช่วง (นาที)</th><th class="text-end">จำนวนแมตช์</th></tr></thead>
+            <tbody id="tblHist"></tbody>
+          </table>
+        </div>
+      </div></div>
+</div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  if (window.__advStatsBooted) return; window.__advStatsBooted = true;
+
+  function gidSafe(){
+    try{ return (typeof gid==='function') ? gid() : (localStorage.getItem('currentGroupId')||'default'); }
+    catch(_){ return localStorage.getItem('currentGroupId')||'default'; }
+  }
+  function dateKeySafe(){
+    try{
+      if (typeof dateKey === 'string' && /^\\d{8}$/.test(dateKey)) return dateKey;
+      if (typeof dateKeyFromPicker === 'function') return dateKeyFromPicker();
+      const dp = document.getElementById('datePicker');
+      if (dp && dp.value) return dp.value.replace(/-/g,'');
+    }catch(_){}
+    const d=new Date(); const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0');
+    return `${y}${m}${da}`;
+  }
+
+  async function getDbUnified(){
+    // 1) Compat path (preferred if already present)
+    try{
+      if (window.firebase && typeof firebase.firestore === 'function'){
+        if (!firebase.apps || !firebase.apps.length){
+          var cfg = window.FIREBASE_CONFIG || window.firebaseConfig || null;
+          if (cfg) firebase.initializeApp(cfg);
+        }
+        if (firebase.apps && firebase.apps.length){
+          return { mode:'compat', db: firebase.firestore() };
+        }
+      }
+    }catch(e){ console.warn('[advStats compat init fail]', e); }
+    // 2) Modular fallback
+    try{
+      const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+      const fsMod  = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+      let app = null;
+      try{ app = appMod.getApp(); }catch(_){
+        const cfg = window.FIREBASE_CONFIG || window.firebaseConfig || (window.firebase && window.firebase.app ? window.firebase.app().options : null);
+        if (!cfg) throw new Error('no-config');
+        app = appMod.initializeApp(cfg);
+      }
+      const db = fsMod.getFirestore(app);
+      return { mode:'mod', db, fs: fsMod };
+    }catch(e){ console.warn('[advStats modular init fail]', e); }
+    throw new Error('no-db');
+  }
+
+  async function fetchMemberMap(){
+    try{
+      const g = gidSafe();
+      const u = await getDbUnified();
+      const map = new Map();
+      if (u.mode === 'compat'){
+        try{
+          const snap = await u.db.collection('groups').doc(g).collection('members').get();
+          snap.forEach(d=>{
+            const v = d.data()||{};
+  async function fetchParticipantsMap(){
+    try{
+      const g = gidSafe(); const dk = dateKeySafe();
+      const u = await getDbUnified();
+      const map = new Map();
+      if (u.mode === 'compat'){
+        try{
+          const snap = await u.db.collection('groups').doc(g).collection('play_sessions').doc(dk).collection('participants').get();
+          snap.forEach(d=>{
+            const v = d.data()||{};
+            const name = v.displayName || v.nickname || v.nick || v.name || v.nname || v.shortName || v.title || d.id;
+            map.set(d.id, String(name));
+            if (v.uid) map.set(String(v.uid), String(name));
+            if (v.userId) map.set(String(v.userId), String(name));
+          });
+        }catch(e){ console.warn('[advStats participants compat]', e); }
+      }else{
+        const { doc, collection, getDocs } = u.fs;
+        try{
+          const sref = doc(u.db, 'groups', g, 'play_sessions', dk);
+          const snap = await getDocs(collection(sref, 'participants'));
+          snap.forEach(d=>{
+            const v = d.data()||{};
+            const name = v.displayName || v.nickname || v.nick || v.name || v.nname || v.shortName || v.title || d.id;
+            map.set(d.id, String(name));
+            if (v.uid) map.set(String(v.uid), String(name));
+            if (v.userId) map.set(String(v.userId), String(name));
+          });
+        }catch(e){ console.warn('[advStats participants modular]', e); }
+      }
+      return map;
+    }catch(e){ console.warn('[advStats fetchParticipantsMap]', e); return new Map(); }
+  }
+  function localMapFromMatches(matches){
+    const map = new Map();
+    for (const m of (matches||[])){
+      const P = Array.isArray(m.playersRaw)? m.playersRaw : []; // will populate below when we push matches
+      for (const x of P){
+        if (!x) continue;
+        const pid = x.id || x.uid || x.userId;
+        const name = x.displayName || x.nickname || x.nick || x.name || x.nname || x.shortName || x.title;
+        if (pid && name) map.set(String(pid), String(name));
+      }
+    }
+    return map;
+  }
+
+            const name = v.displayName || v.nickname || v.nick || v.name || v.nname || v.shortName || v.title || d.id;
+            map.set(d.id, String(name));
+            if (v.uid) map.set(String(v.uid), String(name));
+            if (v.userId) map.set(String(v.userId), String(name));
+          });
+        }catch(e){ console.warn('[advStats members compat]', e); }
+      }else{
+        const { collection, getDocs } = u.fs;
+        try{
+          const coll = collection(u.db, 'groups', g, 'members');
+          const snap = await getDocs(coll);
+          snap.forEach(d=>{
+            const v = d.data()||{};
+            const name = v.displayName || v.nickname || v.nick || v.name || v.nname || v.shortName || v.title || d.id;
+            map.set(d.id, String(name));
+            if (v.uid) map.set(String(v.uid), String(name));
+            if (v.userId) map.set(String(v.userId), String(name));
+          });
+        }catch(e){ console.warn('[advStats members modular]', e); }
+      }
+      return map;
+    }catch(e){ console.warn('[advStats fetchMemberMap]', e); return new Map(); }
+  }
+  function displayName(pid, m){
+    if (!pid) return '—';
+    if (m && m.has(pid)) return m.get(pid);
+    const s = String(pid);
+    if (s.length > 16) return s.slice(0,6) + '…' + s.slice(-4);
+    return s;
+  }
+
+  function toDate(ts){
+    if (!ts) return null;
+    return (typeof ts.toDate === 'function') ? ts.toDate() : new Date(ts);
+  }
+  function fmtHM(d){
+    if (!d) return '—';
+    return d.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+  }
+  function durMin(ms){ return Math.max(0, Math.round(ms/60000)); }
+  function humanMin(min){ const h=Math.floor(min/60), m=min%60; return (h? h+'ชม ':'') + m + 'นาที'; }
+  function min(a,b){ return (a<b)?a:b; } function max(a,b){ return (a>b)?a:b; }
+  function pairKey(a,b){ if (!a||!b||a===b) return null; return a<b? `${a}|${b}` : `${b}|${a}`; }
+  function unionBusy(intervals){
+    if (!intervals.length) return [];
+    intervals.sort((x,y)=> x.s - y.s);
+    const out=[{...intervals[0]}];
+    for (let i=1;i<intervals.length;i++){
+      const cur=intervals[i], last=out[out.length-1];
+      if (cur.s <= last.e) last.e = max(last.e, cur.e);
+      else out.push({...cur});
+    }
+    return out;
+  }
+
+  async function fetchMatchesForDay(){
+    const g = gidSafe(); const dk = dateKeySafe();
+    const u = await getDbUnified();
+    // read resetAt
+    let resetAt = null;
+    if (u.mode === 'compat'){
+      try{
+        const sdoc = await u.db.collection('groups').doc(g).collection('play_sessions').doc(dk).get();
+        if (sdoc.exists){ const t = sdoc.data().resetAt; if (t) resetAt = toDate(t); }
+      }catch(e){ console.warn('[advStats resetAt compat]', e); }
+      const msnap = await u.db.collection('groups').doc(g).collection('play_sessions').doc(dk).collection('matches').get();
+      const out=[];
+      msnap.forEach(d=>{
+        const m = d.data()||{}; m.id = d.id;
+        
+        const end = toDate(m.endedAt||m.endAt); const start = toDate(m.startedAt||m.startAt);
+        const t = end || start;
+        if (resetAt && t && t < resetAt) return;
+        const court = (m.court && (m.court.id || m.court.name || m.court)) || (m.courtId || m.courtName) || '—';
+        const P = Array.isArray(m.players)? m.players : []; const playersRaw = P;
+        const ids = P.map(x=> x && (x.id || x.uid || x.userId)).filter(Boolean);
+        out.push({ start, end, court,
+          type:(function(){ const t0=(m.type||m.gameType||m.mode||''); const t=String(t0).toLowerCase(); if (t.startsWith('s')) return 'singles'; if (t.startsWith('d')) return 'doubles'; try{ if ((P||[]).length===2) return 'singles'; }catch(_){} return 'doubles'; })(),
+          players:ids, playersRaw:playersRaw
+        });
+      });
+      return out;
+    }else{
+      const { doc, getDoc, collection, getDocs } = u.fs;
+      try{
+        const sref = doc(u.db, 'groups', g, 'play_sessions', dk);
+        const sdoc = await getDoc(sref);
+        if (sdoc.exists()){ const t = sdoc.data().resetAt; if (t) resetAt = toDate(t); }
+        const msnap = await getDocs(collection(sref, 'matches'));
+        const out=[];
+        msnap.forEach(d=>{
+          const m = d.data()||{}; m.id = d.id;
+          
+          const end = toDate(m.endedAt||m.endAt); const start = toDate(m.startedAt||m.startAt);
+          const t = end || start;
+          if (resetAt && t && t < resetAt) return;
+          const court = (m.court && (m.court.id || m.court.name || m.court)) || (m.courtId || m.courtName) || '—';
+          const P = Array.isArray(m.players)? m.players : []; const playersRaw = P;
+          const ids = P.map(x=> x && (x.id || x.uid || x.userId)).filter(Boolean);
+          out.push({ start, end, court,
+          type:(function(){ const t0=(m.type||m.gameType||m.mode||''); const t=String(t0).toLowerCase(); if (t.startsWith('s')) return 'singles'; if (t.startsWith('d')) return 'doubles'; try{ if ((P||[]).length===2) return 'singles'; }catch(_){} return 'doubles'; })(),
+          players:ids, playersRaw:playersRaw
+        });
+        });
+        return out;
+      }catch(e){ console.warn('[advStats modular fetch]', e); return []; }
+    }
+  }
+
+  function computeAll(matches){
+    const res = {
+      peak: 0, spanStart:null, spanEnd:null,
+      singles:0, doubles:0,
+      util: {}, utilOverall:0,
+      top: [], hist: [], pairs: [], avgWaitAll:0
+    };
+    if (!matches.length) return res;
+
+    // peak + span + singles/doubles
+    const events=[];
+    matches.forEach(m=>{
+      if (m.start) events.push({t:m.start, d:+1});
+      if (m.end) events.push({t:m.end, d:-1});
+      if (!m.end && m.start) events.push({t: new Date(m.start.getTime()+1), d:-1});
+      (function(){
+      const t0 = (m.type || m.gameType || m.mode || 'doubles');
+      const t = String(t0).toLowerCase();
+      if (t.startsWith('s')) res.singles++; else res.doubles++;
+    })();
+      res.spanStart = res.spanStart? (res.spanStart < (m.start||m.end) ? res.spanStart : (m.start||m.end)) : (m.start||m.end);
+      res.spanEnd   = res.spanEnd  ? (res.spanEnd   > (m.end||m.start) ? res.spanEnd   : (m.end||m.start)) : (m.end||m.start);
+    });
+    events.sort((a,b)=> a.t-b.t);
+    let cur=0, peak=0;
+    for (const e of events){ cur += e.d; peak = Math.max(peak, cur); }
+    res.peak = peak;
+
+    // utilization per court
+    const min_ = (a,b)=> a<b?a:b, max_=(a,b)=> a>b?a:b;
+    const byCourt = {};
+    for (const m of matches){
+      const key = m.court || '—';
+      (byCourt[key] ||= []).push(m);
+    }
+    const utilRows=[];
+    let overallBusy=0, overallSpan=0;
+    for (const [court, arr] of Object.entries(byCourt)){
+      const ivals = arr.map(m=>{
+        const s = m.start || m.end, e = m.end || m.start;
+        return s && e ? {s,e} : null;
+      }).filter(Boolean);
+      if (!ivals.length){
+        utilRows.push({ court, spanMin:0, busyMin:0, util:0 });
+        continue;
+      }
+      const spanS = ivals.reduce((a,v)=> min_(a, v.s), ivals[0].s);
+      const spanE = ivals.reduce((a,v)=> max_(a, v.e), ivals[0].e);
+      const spanMin = Math.max(0, Math.round((spanE - spanS)/60000));
+      const merged = (function(){ 
+        const arr=[...ivals].sort((x,y)=> x.s - y.s); const out=[{...arr[0]}];
+        for (let i=1;i<arr.length;i++){ const c=arr[i], L=out[out.length-1]; if (c.s<=L.e) L.e = max_(L.e,c.e); else out.push({...c}); }
+        return out;
+      })();
+      const busyMin = Math.max(0, Math.round( merged.reduce((a,v)=> a + (v.e - v.s), 0)/60000 ));
+      const util = spanMin>0 ? Math.round( busyMin * 1000 / spanMin )/10 : 0;
+      overallBusy += busyMin; overallSpan += spanMin;
+      utilRows.push({ court, spanMin, busyMin, util });
+    }
+    utilRows.sort((a,b)=> a.court > b.court ? 1 : -1);
+    res.util = { rows: utilRows };
+    res.utilOverall = overallSpan>0 ? Math.round(overallBusy*1000/overallSpan)/10 : 0;
+
+    // top participants + avg wait (per player)
+    const byPlayer = {};
+    for (const m of matches){
+      const s = m.start || m.end, e = m.end || m.start;
+      const dur = s && e ? Math.max(0, Math.round((e-s)/60000)) : 0;
+      for (const pid of (m.players||[])){
+        const p = (byPlayer[pid] ||= { id: pid, matches:0, playMin:0, slots: [] });
+        p.matches++; p.playMin += dur;
+        p.slots.push({ s, e });
+      }
+    }
+    for (const p of Object.values(byPlayer)){
+      p.slots.sort((a,b)=> (a.s||0) - (b.s||0));
+      let waits=[];
+      for (let i=1;i<p.slots.length;i++){
+        const prev = p.slots[i-1], cur = p.slots[i];
+        if (prev.e && cur.s) waits.push( Math.max(0, Math.round((cur.s - prev.e)/60000)) );
+      }
+      p.avgWait = waits.length? Math.round( waits.reduce((a,v)=>a+v,0)/waits.length ) : 0;
+    }
+    res.top = Object.values(byPlayer).sort((a,b)=> b.matches - a.matches || b.playMin - a.playMin).slice(0,8);
+    res.avgWaitAll = (function(){
+      const arr = Object.values(byPlayer).map(p=> p.avgWait).filter(x=> x>=0);
+      if (!arr.length) return 0;
+      return Math.round( arr.reduce((a,v)=>a+v,0) / arr.length );
+    })();
+
+    // histogram
+    const bins = [[0,10],[10,15],[15,20],[20,25],[25,30],[30,9999]];
+    const labels = ["0-10","10-15","15-20","20-25","25-30","30+"];
+    const hist = labels.map(l=>({range:l, count:0}));
+    for (const m of matches){
+      const s = m.start || m.end, e = m.end || m.start;
+      if (!s||!e) continue; const mm = Math.max(0, Math.round((e-s)/60000));
+      for (let i=0;i<bins.length;i++){
+        const [lo,hi] = bins[i];
+        const ok = (i<bins.length-1) ? (mm>=lo && mm<hi) : (mm>=30);
+        if (ok){ hist[i].count++; break; }
+      }
+    }
+    res.hist = hist;
+
+    // pairs (same / cross)
+    const pmap = new Map();
+    for (const m of matches){
+      const ids = (m.players||[]).slice(0,4);
+      const isSingles = m.type==='singles';
+      const A = isSingles ? [ids[0]].filter(Boolean) : [ids[0], ids[1]].filter(Boolean);
+      const B = isSingles ? [ids[1]].filter(Boolean) : [ids[2], ids[3]].filter(Boolean);
+      for (let i=0;i<A.length;i++){
+        for (let j=i+1;j<A.length;j++){
+          const k = pairKey(A[i],A[j]); if(!k) continue;
+          const cur = pmap.get(k)||{same:0,cross:0}; cur.same++; pmap.set(k,cur);
+        }
+      }
+      for (let i=0;i<B.length;i++){
+        for (let j=i+1;j<B.length;j++){
+          const k = pairKey(B[i],B[j]); if(!k) continue;
+          const cur = pmap.get(k)||{same:0,cross:0}; cur.same++; pmap.set(k,cur);
+        }
+      }
+      for (const a of A){
+        for (const b of B){
+          const k = pairKey(a,b); if(!k) continue;
+          const cur = pmap.get(k)||{same:0,cross:0}; cur.cross++; pmap.set(k,cur);
+        }
+      }
+    }
+    res.pairs = Array.from(pmap.entries()).map(([k,v])=>({ k, same:v.same, cross:v.cross }))
+                     .sort((a,b)=> (b.same+b.cross) - (a.same+a.cross)).slice(0,12);
+    return res;
+  }
+
+  function renderAll(res, memberMap){
+    const $ = (id)=> document.getElementById(id);
+    $('kpiPeak').textContent = String(res.peak||0);
+    $('kpiSpanStart').textContent = (res.spanStart? res.spanStart.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}) : '—');
+    $('kpiSpanEnd').textContent   = (res.spanEnd?   res.spanEnd.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})   : '—');
+    $('kpiSingles').textContent = String(res.singles||0);
+    $('kpiDoubles').textContent = String(res.doubles||0);
+    $('kpiAvgWaitAll').textContent = (res.avgWaitAll||0) + ' นาที';
+
+    $('utilOverall').textContent = (res.utilOverall||0).toFixed(1);
+    const utilBody = $('tblUtil'); utilBody.innerHTML = '';
+    (res.util.rows||[]).forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.court}</td>
+        <td class="text-end mono">${(r.spanMin)} นาที</td>
+        <td class="text-end mono">${(r.busyMin)} นาที</td>
+        <td class="text-end mono">${(r.util||0).toFixed(1)}%</td>`;
+      utilBody.appendChild(tr);
+    });
+
+    const topBody = $('tblTop'); topBody.innerHTML = '';
+    (res.top||[]).forEach((p,idx)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="text-muted">${idx+1}</td>
+        <td>${displayName(p.id, memberMap)}</td>
+        <td class="text-end mono">${p.matches}</td>
+        <td class="text-end mono">${p.playMin} นาที</td>
+        <td class="text-end mono">${p.avgWait} นาที</td>`;
+      topBody.appendChild(tr);
+    });
+
+    const histBody = $('tblHist'); histBody.innerHTML='';
+    (res.hist||[]).forEach(h=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${h.range}</td><td class="text-end mono">${h.count}</td>`;
+      histBody.appendChild(tr);
+    });
+
+    const pairsBody = $('tblPairs'); pairsBody.innerHTML='';
+    (res.pairs||[]).forEach(p=>{
+      const tr = document.createElement('tr');
+      const [a,b] = p.k.split('|');
+      tr.innerHTML = `<td>${a} - ${b}</td>
+        <td class="text-end mono">${p.same}</td>
+        <td class="text-end mono">${p.cross}</td>`;
+      pairsBody.appendChild(tr);
+    });
+
+    $('advUpdatedAt').textContent = new Date().toLocaleTimeString('th-TH',{hour:'2-digit', minute:'2-digit'});
+  }
+
+  async function recalcAdv(){
+    try{
+      const [matches, mmMembers, mmParts] = await Promise.all([fetchMatchesForDay(), fetchMemberMap(), fetchParticipantsMap()]);
+      const mmLocal = localMapFromMatches(matches);
+      const mm = new Map([...mmMembers, ...mmParts, ...mmLocal]);
+      const res = computeAll(matches);
+      renderAll(res, mm);
+    }catch(e){
+      console.warn('[advStats recalc]', e);
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', ()=>{
+    const dp = document.getElementById('datePicker');
+    if (dp){ dp.addEventListener('change', ()=> setTimeout(recalcAdv, 0)); }
+    recalcAdv();
+  });
+
+})();
+</script>
+</body>
+
+
+</html>
+
+
+
+

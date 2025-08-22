@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>จัดการก๊วน - Badminton Manage (v1.1.3)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    .small-muted{font-size:.9rem;color:#6c757d}
+    .toast-lite{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:1080}
+  </style>
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-semibold" href="#">Badminton Manage</a>
+      <div class="ms-3" style="min-width:220px;display:inline-block;"><div id="ownerGroupSwitcher"></div></div>
+      <span class="navbar-text small" style="color:#000;position:fixed;right:10px;bottom:1px;">Group version 1.1.3</span>
+
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="topNav">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link" href="index.html"><i class="bi bi-people-fill me-1"></i> จัดการสมาชิก</a></li>
+          <li class="nav-item"><a class="nav-link" href="court.html" id="navCourt"><i class="bi bi-columns-gap me-1"></i> จัดการคอร์ท</a></li>
+          <li class="nav-item"><a class="nav-link" href="expense.html" id="navExpense"><i class="bi bi-cash-stack me-1"></i> จัดการค่าใช้จ่าย</a></li>
+          <li class="nav-item"><a class="nav-link" href="stat.html" id="navStats"><i class="bi bi-graph-up-arrow me-1"></i> สถิติ</a></li>
+        </ul>
+        <div class="small"><button id="btnLogout" style="z-index:9999" class="btn btn-sm btn-outline-dark">Logout</button></div>
+      </div>
+    </div>
+</nav>
+
+<div class="container my-4">
+  <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
+    <h1 class="h4 m-0">จัดการก๊วน</h1>
+    <div class="d-flex gap-2 align-items-center">
+      <div class="input-group" style="max-width:420px;">
+        <input id="newGroupName" class="form-control" placeholder="ตั้งชื่อก๊วนใหม่">
+        <button id="btnCreateGroup" class="btn btn-primary"><i class="bi bi-plus-lg"></i> สร้างก๊วน</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">เข้าร่วมด้วย Group ID</label>
+          <input id="joinGroupGid" class="form-control" placeholder="เช่น abc123">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Invite Code</label>
+          <input id="joinGroupCode" class="form-control" placeholder="โค้ดจากเจ้าของก๊วน">
+        </div>
+        <div class="col-md-4 d-grid">
+          <button id="btnJoinByCode" class="btn btn-success"><i class="bi bi-person-plus"></i> เข้าร่วมก๊วน</button>
+        </div>
+      </div>
+      <div class="small text-muted mt-2">หรือเปิดลิงก์เชิญ: join.html?gid=&lt;GROUP_ID&gt;&code=&lt;INVITE_CODE&gt;</div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="small-muted">จำนวนก๊วนของฉัน: <span id="groupCount">0</span></div>
+    <div class="input-group" style="max-width:300px;">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
+      <input id="searchBox" class="form-control" placeholder="ค้นหาชื่อก๊วน">
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div id="groupList" class="row g-3"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast-lite d-none">
+  <div class="alert alert-dark border border-secondary py-2 px-3 mb-0 small"></div>
+</div>
+
+<!-- Init Firebase FIRST -->
+<script src="assets/js/firebase_config.js"></script>
+
+<!-- Page logic -->
+<script type="module">
+  import { requireAuth } from "./assets/js/auth_guard.js";
+  import * as GS from "./assets/js/group_state.js?v=20250820";
+
+  requireAuth('login.html');
+
+  const $ = (id)=>document.getElementById(id);
+  const listEl = $('groupList');
+  const countEl = $('groupCount');
+  const searchEl = $('searchBox');
+
+  function toast(msg){
+    const box = document.getElementById('toast');
+    const alert = box.querySelector('.alert');
+    alert.textContent = msg;
+    box.classList.remove('d-none');
+    setTimeout(()=>box.classList.add('d-none'), 1500);
+  }
+
+  function card(g){
+    const col = document.createElement('div');
+    col.className = 'col-12 col-md-6 col-lg-4';
+    const isActive = (GS.getCurrentGroupId() === g.id);
+    col.innerHTML = `
+      <div class="border rounded-4 p-3 h-100 d-flex flex-column">
+        <div class="d-flex align-items-start justify-content-between mb-2">
+          <div>
+            <div class="fw-semibold">${g.name || g.id}</div>
+            <div class="text-muted small">id: <code>${g.id}</code></div>
+          </div>
+          <div>${GS.renderRoleBadge(g.myRole).outerHTML}</div>
+        </div>
+        <div class="mt-auto d-flex flex-wrap gap-2">
+          <button class="btn btn-sm btn-outline-secondary btn-rename"><i class="bi bi-pencil-square"></i> เปลี่ยนชื่อ</button>
+          <button class="btn btn-sm btn-outline-primary btn-activate" ${isActive?'disabled':''}><i class="bi bi-check2-circle"></i> ใช้งานก๊วนนี้</button>
+          ${g.myRole==='owner'
+            ? '<button class="btn btn-sm btn-outline-danger btn-delete"><i class="bi bi-trash"></i> ลบก๊วน</button>' + '<button class="btn btn-sm btn-outline-success btn-invite"><i class="bi bi-link-45deg"></i> คัดลอกลิงก์เชิญ</button>'
+            : '<button class="btn btn-sm btn-outline-warning btn-leave"><i class="bi bi-box-arrow-right"></i> ออกจากก๊วน</button>'
+          }
+        </div>
+      </div>
+    `;
+
+    col.querySelector('.btn-rename').addEventListener('click', async ()=>{
+      const name = prompt('ตั้งชื่อใหม่', g.name || '');
+      if (!name) return;
+      await GS.renameGroup(g.id, name);
+      await reload();
+      toast('เปลี่ยนชื่อแล้ว');
+    });
+    const btnAct = col.querySelector('.btn-activate');
+    if (btnAct) btnAct.addEventListener('click', async ()=>{
+      GS.setCurrentGroupId(g.id);
+      await reload();
+      toast('ตั้งเป็นก๊วนที่ใช้งานแล้ว');
+    });
+
+    if (g.myRole==='owner'){
+      col.querySelector('.btn-delete').addEventListener('click', async ()=>{
+        if (!confirm('ยืนยันลบก๊วนนี้? (soft delete)')) return;
+        await GS.deleteGroup(g.id);
+        await reload();
+        toast('ลบก๊วนแล้ว');
+      });
+      col.querySelector('.btn-invite').addEventListener('click', async ()=>{
+        try{
+          const { gid, code } = await GS.getInviteLink(g.id);
+          const url = `${location.origin + location.pathname.replace(/[^/]+$/, '')}join.html?gid=${encodeURIComponent(gid)}&code=${encodeURIComponent(code)}`;
+          await navigator.clipboard.writeText(url);
+          toast('คัดลอกลิงก์เชิญแล้ว');
+        }catch(e){ console.error(e); toast('สร้างลิงก์เชิญไม่สำเร็จ'); }
+      });
+    } else {
+      col.querySelector('.btn-leave').addEventListener('click', async ()=>{
+        if (!confirm('ยืนยันออกจากก๊วนนี้?')) return;
+        await GS.leaveGroup(g.id);
+        await reload();
+        toast('ออกจากก๊วนแล้ว');
+      });
+    }
+    return col;
+  }
+
+  async function reload(){
+    listEl.innerHTML = '<div class="text-center text-muted my-4"><div class="spinner-border spinner-border-sm me-2"></div> กำลังโหลด...</div>';
+    let groups = await GS.listMyGroupsWithOwned();
+    const q = (searchEl.value||'').toLowerCase().trim();
+    if(q) groups = groups.filter(g => (g.name||'').toLowerCase().includes(q));
+    $('groupCount').textContent = groups.length;
+    listEl.innerHTML = '';
+    if (groups.length === 0){
+      const div = document.createElement('div');
+      div.className = 'text-center text-muted my-4';
+      div.textContent = 'ยังไม่มีก๊วนของคุณ สร้างก๊วนใหม่ด้านบนได้เลย';
+      listEl.appendChild(div);
+      return;
+    }
+    for (const g of groups){
+      listEl.appendChild(card(g));
+    }
+  }
+
+  document.getElementById('btnCreateGroup').addEventListener('click', async ()=>{
+    const name = document.getElementById('newGroupName').value.trim();
+    if (!name) return alert('กรุณาตั้งชื่อก๊วน');
+    try{
+      const gid = await GS.createGroup(name);
+      GS.setCurrentGroupId(gid);
+      document.getElementById('newGroupName').value = '';
+      await reload();
+      toast('สร้างก๊วนสำเร็จ');
+    }catch(e){ console.error(e); alert('สร้างก๊วนไม่สำเร็จ'); }
+  });
+
+  document.getElementById('btnJoinByCode').addEventListener('click', async ()=>{
+    const gid = document.getElementById('joinGroupGid').value.trim();
+    const code = document.getElementById('joinGroupCode').value.trim();
+    if (!gid || !code) return alert('กรุณากรอก Group ID และ Invite Code');
+    try{
+      await GS.joinByCode(gid, code);
+      await reload();
+      toast('เข้าร่วมสำเร็จ');
+    }catch(e){ console.error(e); alert('เข้าร่วมไม่สำเร็จ'); }
+  });
+
+  (async()=>{
+    try{
+      await GS.waitForAuthReady();
+      const el = document.getElementById('ownerGroupSwitcher');
+      if (el) await GS.mountOwnerGroupSwitcher(el);
+      await reload();
+    }catch(e){ console.warn('[init]', e); }
+  })();
+
+  addEventListener('group:changed', async ()=>{
+    const el = document.getElementById('ownerGroupSwitcher');
+    if (el) await GS.mountOwnerGroupSwitcher(el);
+    await reload();
+  });
+
+  document.getElementById('searchBox').addEventListener('input', reload);
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

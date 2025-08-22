@@ -1,0 +1,3535 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>จัดการคอร์ท (Realtime)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/courts.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+  <style>
+  /* ป้าย mark บน flatpickr (ให้เหมือนหน้า index.html) */
+  .has-play .flatpickr-day{ position:relative; }
+  .flatpickr-day.has-play::after{
+    content:""; position:absolute; left:50%; bottom:6px; width:6px; height:6px;
+    margin-left:-3px; border-radius:50%; background:#ff6600;
+  }
+
+  /* การ์ดคอร์ท + แถบสถานะด้านบน */
+  .court-card { overflow:hidden; }
+  .court-card .status-bar { position:absolute; left:0; top:0; height:6px; width:100%; }
+  .court-card .status-live { background:#33cc00; }   /* playing = เขียว */
+  .court-card .status-idle { background:#6c757d; }   /* ว่าง = เทา */
+ 
+  /* กล่องทีม */
+  .team.card { border-radius: .75rem; }
+  .team .bi-person-fill { font-size: 1.1rem; }
+
+  /* คิวกว้างขึ้น (คุณปรับเลย์เอาต์ 5/3/4 ไปแล้ว ส่วนนี้คือสไตล์ตารางในคิว) */
+  .queue-grid{
+    display:grid;
+    grid-template-columns: 1.2fr 120px 120px 140px 100px; /* ชื่อ | ระดับ | เล่นแล้ว | สถานะ/รอ | หยุดเล่น */
+    gap:8px; align-items:center;
+  }
+  .queue-grid .qhead{
+    font-weight:600; color:#6c757d; font-size:.875rem;
+    border-bottom:1px solid #e9ecef; padding-bottom:4px;
+  }
+  .qrow{
+    display:grid; grid-template-columns:inherit; gap:8px; align-items:center;
+    background:#fff; border:1px solid #eee; border-radius:.5rem; padding:.4rem .5rem;
+  }
+  .qcell.q-name{ display:flex; align-items:center; gap:.4rem; }
+  .badge-wait{ font-variant-numeric: tabular-nums; }
+
+
+
+  .dot-red{
+    display:inline-block; width:8px; height:8px; border-radius:50%;
+    background:#dc3545; margin-right:6px;
+  }
+  .qrow.paused{ opacity:.65; }
+  @media (max-width: 992px){
+    .queue-grid{ grid-template-columns: 1fr 88px 88px 110px 80px; gap:6px; }
+  }
+
+  /* icon-only buttons equal size */
+  .btn-ico{ width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; padding:0; }
+  @media (max-width: 480px){ .btn-ico{ width:32px; height:32px; } }
+
+  /* DnD highlight */
+  .team-drop{ min-height: 86px; border:1px dashed var(--bs-border-color); }
+  .team-drop.drag-over{ background: rgba(13,110,253,.06); transition: background .2s; }
+
+  /* wait-no-bg */
+  .qcell.q-wait .badge-wait{
+    background: transparent !important;
+    color: #000 !important;
+    padding: 0;
+	font-size:10pt;
+    font-weight: 500;
+  }
+
+    .lv-1{ background:#6c757d; }
+  .lv-2{ background:#20c997; }
+  .lv-3{ background:#17a2b8; }
+  .lv-4{ background:#fd7e14; }
+  .lv-5{ background:#dc3545; }
+
+  .drag-handle{cursor:grab;color:#6c757d;}
+</style>
+
+
+
+<style>
+/* enforce one match per row */
+#standbyMatches{ display:block !important; }
+#standbyMatches .match-card{ width:100% !important; }
+</style>
+
+
+<style id="tap-mode-css">
+/* Tap-to-swap highlight */
+.tap-selected{
+  outline: 2px solid var(--bs-warning);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(255,193,7,.15);
+}
+</style>
+
+</head>
+<body data-init="1" class="courts-page bg-light">
+  <!-- EARLY_APP_INIT placeholder --><script src="assets/js/firebase_config.js"></script><script type="module">import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"; if (!getApps().length && window.FIREBASE_CONFIG) { initializeApp(window.FIREBASE_CONFIG); }</script>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-primary" >
+    <div class="container-fluid">
+      <a class="navbar-brand fw-semibold" href="#">Badminton Manage</a> <div class="ms-3" style="min-width:220px;display:inline-block;"><div id="ownerGroupSwitcher"></div></div>
+	  <span class="navbar-text small" style="color:#000;position:fixed;right:10px;bottom:1px;">Court version 1.7.3</span>
+	
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#topNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="topNav">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link " href="index.html"><i class="bi bi-people-fill me-1"></i> จัดการสมาชิก</a></li>
+          <li class="nav-item"><a class="nav-link active" href="court.html" id="navCourt"><i class="bi bi-columns-gap me-1"></i> จัดการคอร์ท</a></li>
+          <li class="nav-item"><a class="nav-link" href="expense.html" id="navExpense"><i class="bi bi-cash-stack me-1"></i> จัดการค่าใช้จ่าย</a></li>
+          <li class="nav-item"><a class="nav-link" href="stat.html" id="navStats"><i class="bi bi-graph-up-arrow me-1"></i> สถิติ</a></li>
+        </ul>
+		<div class=" small"><button id="btnLogout" style="z-index:9999" class="btn btn-sm btn-outline-dark">Logout</button></div>
+		
+        
+      </div>
+    </div>
+  
+<!--<div class="bg-body-tertiary border-top">
+  <div class="container py-2">
+    <a class="btn btn-sm btn-outline-primary" href="groups.html"><i class="bi bi-people"></i> จัดการก๊วน</a>
+  </div>
+</div>-->
+</nav>
+
+
+  <div class="container-fluid  py-3 ">
+    <div class="row mb-3">
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-body d-flex flex-wrap gap-2 align-items-center" id="filterBar" >
+            
+			<strong>เปิด/ปิดคอร์ท</strong> <button id="btnToggleCourts" class="btn btn-lg btn-outline-secondary me-2" title="เปิด/ปิดคอร์ท"><i class="bi bi-toggle-off"></i></button> 
+			<i class="bi bi-calendar  me-2"></i><strong>เล่นวันที่</strong>
+            <div id="calendarHost" class="ms-3"></div>
+            <div class="ms-2">   
+              <input type="date" class="form-control form-control-sm" id="datePicker"/>
+            </div>
+			
+            <div class="ms-auto d-flex align-items-center gap-2">
+
+             <div class="dropdown">
+<strong>เลือกคอร์ทที่ใช้งาน</strong>&nbsp;
+  <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button"
+          id="courtPickerBtn" data-bs-toggle="dropdown" aria-expanded="false">
+    เลือกคอร์ทที่ใช้งาน
+  </button>
+  <div class="dropdown-menu p-2" style="min-width:240px" aria-labelledby="courtPickerBtn">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <button class="btn btn-link btn-sm" id="courtPickAll" type="button">เลือกทั้งหมด</button>
+      <button class="btn btn-link btn-sm" id="courtPickClear" type="button">ล้าง</button>
+    </div>
+    <div id="courtChecks" class="d-grid" style="grid-template-columns:repeat(2,1fr);gap:.25rem .75rem"></div>
+  </div>
+  <span class="navbar-text small"><button id="btnAllReset" class="btn btn-sm btn-danger">Reset All</button></span>
+  
+</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+		 <div class="col-12">
+				<small><i class="bi bi-info-circle"></i> ลากชื่อ เพื่อเลือกผู้เล่นเพื่อจัดทีม หรือสลับตำแห่ง</small>
+        </div>
+
+      <div class="col-lg-4 col-xl-4">
+        <div class="card shadow-sm h-100">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div><i class="bi bi-people-fill me-1"></i> รอคิวรายบุคคล  </div>
+           
+          </div>
+          <div class="card-body p-2">
+            <div id="queueMeta" class="small text-muted px-2 mb-2"></div>
+            <div id="candidateList" class="vlist" ></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-5 col-xl-5">
+        <div class="card shadow-sm mb-3">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div><i class="bi bi-diagram-3 me-1"></i> จัดทีมรอเล่น</div>
+            <div class="d-flex align-items-center gap-2">
+              <label class="form-label mb-0 small">สุ่มทีละ</label>
+              <select id="matchesToCreate" class="form-select form-select-sm" style="width:90px">
+                <option value="1">1 แมตช์</option>
+                <option value="2">2 แมตช์</option>
+                <option value="3">3 แมตช์</option>
+              </select>
+ 
+              <button class="btn btn-lg btn-success" id="btnCreateMatches"><i class="bi bi-shuffle me-1"></i> สุ่มจัดแมตช์</button>
+              <button class="btn btn-sm btn-outline-danger" id="btnCreateManualMatch"><i class="bi bi-pencil-square me-1"></i> จัดแมตช์เอง</button>
+            </div>
+          </div>
+          <div class="card-body" >
+            <div id="standbyMatches" class="w-100" ></div>
+          </div>
+        </div>
+	</div>
+	<div class="col-lg-3 col-xl-3">	
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-lightning-charge me-1"></i> กำลังเล่น</div>
+          <div class="card-body">
+            <div id="playingList" class="playing-grid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- Firebase compat SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<!-- Firebase config & data layer -->
+<script>window.FS_LONGPOLL = true;</script>
+
+
+<script id="navCourtClickPatch">
+(function(){
+  var link = document.getElementById('navCourt');
+  if(link){
+    link.addEventListener('click', function(e){
+      // Always navigate to court.html (avoid SPA handlers)
+      e.preventDefault();
+      window.location.href = 'court.html';
+    });
+  }
+})();
+</script>
+
+
+
+<!-- Robust loader v3: resolve config/firebase paths, init app if needed, then dynamic import entry.js -->
+<script>
+(function(){
+  const CFG_CANDIDATES = [
+    "./assets/js/firebase_config.js","../assets/js/firebase_config.js","/assets/js/firebase_config.js",
+    "./assets/js/firebase-config.js","../assets/js/firebase-config.js","/assets/js/firebase-config.js"
+  ];
+  const FB_CANDIDATES  = ["./assets/js/firebase.js","../assets/js/firebase.js","/assets/js/firebase.js"];
+
+  function loadScript(src){
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src; s.async = false;
+      s.onload = () => resolve(src);
+      s.onerror = () => reject(new Error('404 ' + src));
+      document.head.appendChild(s);
+    });
+  }
+  async function loadFirst(cands, label){
+    let lastErr;
+    for(const c of cands){
+      try { const used = await loadScript(c); console.log('[court] loaded', label, used); return used; } catch(e){ console.warn('[court] failed', label, c); lastErr = e; }
+    }
+    throw lastErr || new Error('No candidate for '+label);
+  }
+
+  (async ()=>{
+    try{
+      await loadFirst(CFG_CANDIDATES, 'firebase_config');
+      await loadFirst(FB_CANDIDATES, 'firebase');
+
+      const bridge = document.createElement('script');
+      bridge.type = 'module';
+      bridge.textContent = `
+        console.log('[court/bridge] module start');
+        import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        try {
+          const apps = getApps();
+          if (!apps || apps.length === 0) {
+            if (window.FIREBASE_CONFIG) {
+              initializeApp(window.FIREBASE_CONFIG);
+              console.log('[court/bridge] initializeApp via module bridge');
+            } else {
+              console.warn('[court/bridge] FIREBASE_CONFIG is missing');
+            }
+          } else {
+            console.log('[court/bridge] Firebase app already exists');
+          }
+        } catch (e) {
+          console.error('[court/bridge] init failed', e);
+        }
+        // Always import entry.js after the init step:
+        try {
+          console.log('[court/bridge] importing entry.js ...');
+          //await import("./assets/js/courts/entry.js"); // disabled: inline scripts handle UI now
+          console.log('[court/bridge] entry.js imported');
+        } catch (e) {
+          console.error('[court/bridge] entry import failed', e);
+        }
+      `;
+      document.body.appendChild(bridge);
+    } catch(e){
+      console.error('[court] failed to load firebase files ->', e);
+      const warn = document.createElement('div');
+      warn.style.cssText = "position:fixed;bottom:12px;left:12px;background:#fee;border:1px solid #f99;color:#900;padding:8px 10px;border-radius:8px;z-index:9999;font:12px/1.4 system-ui";
+      warn.textContent = "ไม่พบไฟล์ firebase_config.js / firebase.js (ตรวจสอบ path)";
+      document.body.appendChild(warn);
+    }
+  })();
+})();
+</script>
+
+<script src="assets/js/firebase_config.js"></script>
+<script type="module">
+  import { requireAuth, doSignOut } from "./assets/js/auth_guard.js";
+  import { ensureDefaultGroupExists, mountGroupSwitcher } from "./assets/js/group_state.js";
+  import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  requireAuth('login.html');
+  window.addEventListener('DOMContentLoaded', async ()=>{
+    await ensureDefaultGroupExists();
+    const el = document.getElementById('groupSwitcher');
+    if (el) await mountGroupSwitcher(el);
+    const btn = document.getElementById('btnSignOut');
+    if (btn) btn.onclick = ()=> doSignOut();
+  });
+</script>
+
+<script type="module">
+import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+const auth = getAuth();
+document.getElementById('btnLogout').addEventListener('click', async ()=>{
+	
+  try {
+    await signOut(auth);
+    location.href = 'login.html';
+  } catch(e) {
+    alert(e.message);
+  }
+});
+</script>
+
+
+<!--<button id="btnLogout" style="position:fixed;right:12px;bottom:12px;z-index:9999" class="btn btn-sm btn-outline-dark">Logout</button>-->
+
+<!-- logout wiring -->
+<script src="assets/js/firebase_config.js"></script>
+<script type="module">
+  import { doSignOut } from "./assets/js/auth_guard.js";
+  window.addEventListener('DOMContentLoaded', ()=>{
+    const btn = document.getElementById('btnLogout') || document.getElementById('btnSignOut');
+    if (btn) btn.addEventListener('click', ()=> doSignOut().then(()=> location.href='login.html'));
+  });
+</script>
+
+
+<script src="assets/js/firebase_config.js"></script>
+<script type="module">
+  import { mountOwnerGroupSwitcher, getCurrentGroupId } from "./assets/js/group_state.js?v=20250812";
+  import { requireAuth } from "./assets/js/auth_guard.js";
+  requireAuth('login.html');
+  window.addEventListener('DOMContentLoaded', ()=>{
+    const el = document.getElementById('ownerGroupSwitcher');
+    if (el) mountOwnerGroupSwitcher(el);
+  });
+  // update switcher when group changes externally
+  addEventListener('group:changed', ()=>{
+    const el = document.getElementById('ownerGroupSwitcher');
+    if (el) mountOwnerGroupSwitcher(el);
+  });
+</script>
+
+
+    <!-- AUTO_SELECT_OWNER_GROUP_START -->
+    <script type="module">
+      import * as GS from "./assets/js/group_state.js?v=20250812";
+      async function ensureActiveGroup() {
+        try {
+          if (GS.getCurrentGroupId() === 'default') {
+            await GS.ensureOwnerMappings();
+            const owners = await GS.listOwnerGroups();
+            if (owners.length > 0) {
+              GS.setCurrentGroupId(owners[0].id);
+            }
+          }
+        } catch (e) {
+          console.warn('[auto-select group] skipped:', e);
+        }
+      }
+      document.addEventListener('DOMContentLoaded', ensureActiveGroup);
+    </script>
+    <!-- AUTO_SELECT_OWNER_GROUP_END -->
+    
+
+                
+
+    <!-- OWNER_SWITCHER_MOUNT_START -->
+    <script type="module">
+      import * as GS from "./assets/js/group_state.js?v=20250812";
+      async function mountAndAuto(){
+        try{
+          await GS.waitForAuthReady();
+          await GS.ensureOwnerMappings();
+          const el = document.getElementById('ownerGroupSwitcher');
+          if (el) await GS.mountOwnerGroupSwitcher(el);
+          if (GS.getCurrentGroupId() === 'default'){
+            const list = await GS.listOwnerGroups();
+            let gid = list.length ? list[0].id : null;
+            if (!gid){
+              const mine = await GS.listMyGroups();
+              gid = mine.length ? mine[0].id : null;
+            }
+            if (gid) GS.setCurrentGroupId(gid);
+          }
+        } catch(e){ console.warn('[switcher mount]', e); }
+      }
+      document.addEventListener('DOMContentLoaded', mountAndAuto);
+      addEventListener('group:changed', ()=>{
+        const el = document.getElementById('ownerGroupSwitcher');
+        if (el) GS.mountOwnerGroupSwitcher(el);
+      });
+    </script>
+    <!-- OWNER_SWITCHER_MOUNT_END -->
+    
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+        <!-- BOOTSTRAP_MODAL_SAFETY_START -->
+        <script>
+        document.addEventListener('DOMContentLoaded', function(){
+          try {
+            var modals = Array.from(document.querySelectorAll('.modal[id]'));
+            var triggers = Array.from(document.querySelectorAll('[data-bs-toggle="modal"]:not([data-bs-target])'));
+            if (modals.length === 1 && triggers.length > 0) {
+              var id = '#' + modals[0].id;
+              triggers.forEach(function(t){ t.setAttribute('data-bs-target', id); });
+            }
+          } catch (e) { console.warn('[modal-safety]', e); }
+        });
+        </script>
+        <!-- BOOTSTRAP_MODAL_SAFETY_END -->
+    
+		
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+<script type="module">
+
+
+/* ---------- วันที่ & dateKey ---------- */
+const dateInput = document.getElementById('datePicker');
+function toKey(d){
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
+  return `${y}${m}${dd}`;
+}
+function keyFromInput(){
+  return dateInput?.value ? dateInput.value.replaceAll('-','') : toKey(new Date());
+}
+// ตั้งค่าค่าเริ่มต้นเป็นวันนี้ ถ้ายังว่าง
+if (dateInput && !dateInput.value) {
+  const d = new Date();
+  dateInput.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+let dateKey = keyFromInput();
+// เวลาเปลี่ยนวัน → อัปเดต dateKey และ resubscribe ใหม่
+dateInput?.addEventListener('change', ()=>{
+  dateKey = keyFromInput();
+  resubscribe();
+});
+
+
+import * as GS from "./assets/js/group_state.js?v=20250812";
+import {getFirestore,collection,query,where,orderBy,onSnapshot,addDoc,updateDoc,doc,serverTimestamp,writeBatch,increment,getDocs,setDoc, deleteDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const db = getFirestore();
+
+function gid(){
+  try {
+    if (GS && typeof GS.getCurrentGroupId === 'function') {
+      return GS.getCurrentGroupId() || 'default';
+    }
+  } catch(_) {}
+  return 'default';
+}
+
+  const $  = (s)=> document.querySelector(s);
+  const $$ = (s)=> Array.from(document.querySelectorAll(s));
+
+
+
+  /* ---------- Court Picker: เลือกคอร์ทที่ใช้งาน (ดีฟอลต์ 1..10) ---------- */
+  const ACTIVE_KEY = ()=> `activeCourts:${gid()}`;
+  let activeCourts = new Set();
+  function defaultCourts(){ return Array.from({length:10},(_,i)=> i+1); }   // ข้อ 1
+
+  function loadActiveCourts(){
+  try{
+    const curKey = ACTIVE_KEY();
+    const raw = localStorage.getItem(curKey);
+
+    if (raw) {
+      activeCourts = new Set(JSON.parse(raw).map(Number));
+    } else {
+      // ลองเอาค่าจากคีย์กลางที่เซฟล่าสุด
+      const last = localStorage.getItem('activeCourts:last');
+      if (last) {
+        activeCourts = new Set(JSON.parse(last).map(Number));
+        localStorage.setItem(curKey, last); // sync ให้คีย์ปัจจุบันด้วย
+      } else {
+        // กรณีเคยอยู่ default มาก่อน
+        const legacy = localStorage.getItem('activeCourts:default');
+        activeCourts = new Set(legacy ? JSON.parse(legacy).map(Number) : defaultCourts());
+        localStorage.setItem(curKey, JSON.stringify(Array.from(activeCourts)));
+      }
+    }
+  } catch {
+    activeCourts = new Set(defaultCourts());
+  }
+  paintCourtChecks();
+  updateCourtPickerBtn();
+  renderPlayingGrid();
+}
+
+
+
+
+  function saveActiveCourts(){
+		const list = JSON.stringify(Array.from(activeCourts));
+		localStorage.setItem(ACTIVE_KEY(), list);
+		 localStorage.setItem('activeCourts:last', list);   // ← บรรทัดนี้เพิ่มใหม่
+		 updateCourtPickerBtn();
+		renderPlayingGrid();
+  }
+  function paintCourtChecks(){
+    const host = $('#courtChecks'); if (!host) return;
+    host.innerHTML = '';
+    for (let i=1;i<=10;i++){ // 10 courts
+      const id = `ckCourt${i}`;
+      host.insertAdjacentHTML('beforeend', `
+        <label class="form-check small">
+          <input class="form-check-input court-check" type="checkbox" id="${id}" value="${i}" ${activeCourts.has(i)?'checked':''}>
+          <span class="form-check-label">คอร์ท ${i}</span>
+        </label>
+      `);
+    }
+    $$('.court-check').forEach(ch=>{
+      ch.addEventListener('change', (e)=>{
+  const n = Number(e.currentTarget.value);
+  if (!e.currentTarget.checked){
+    const hasLive = (window.liveMatches||[]).some(m => Number(m.courtNo)===n);
+    if (hasLive){ e.currentTarget.checked = true; showToast('มีเกมกำลังเล่นอยู่ในคอร์ท '+n+' กรุณาจบเกมก่อน','warning'); return; }
+    activeCourts.delete(n);
+  } else { activeCourts.add(n); }
+  saveActiveCourts();
+});
+    });
+    $('#courtPickAll')?.addEventListener('click', ()=>{ activeCourts = new Set(defaultCourts()); saveActiveCourts(); paintCourtChecks(); });
+    $('#courtPickClear')?.addEventListener('click', ()=>{ activeCourts = new Set(); saveActiveCourts(); paintCourtChecks(); });
+  }
+  function updateCourtPickerBtn(){
+    const b = $('#courtPickerBtn'); if (!b) return;
+    const list = Array.from(activeCourts).sort((a,b)=>a-b);
+    b.innerHTML = list.length ? `คอร์ทที่ใช้งาน: ${list.join(', ')}` : 'เลือกคอร์ทที่ใช้งาน';
+  }
+
+  /* ---------- รอคิวรายบุคคล (arrived=true) ---------- */
+  let unsubArrived = null, arrivedList = [];
+
+
+  let unsubQueued = null, matchesQueued = [];
+
+function occupiedIdsFrom(){
+  const set = new Set();
+  [...(matchesQueued||[]), ...(liveMatches||[])].forEach(m => {
+    (m.playerIds || []).forEach(id => set.add(id));
+  });
+  return set;
+}
+
+
+  
+/*function renderCandidates(){
+  const host = $('#candidateList'); if (!host) return;
+  const occ = occupiedIdsFrom();
+
+  if (!arrivedList.length){
+    host.innerHTML = `<div class="text-muted small">— ยังไม่มีผู้เล่นที่เช็คอินแล้ว —</div>`;
+    $('#queueMeta').innerHTML = `มาแล้ววันนี้: <b>0</b> คน`;
+    return;
+  }
+  const html = arrivedList.map(p=>{
+    const disabled = occ.has(p.id);
+    return `
+      <label class="vitem form-check ${disabled?'opacity-50':''}">
+        <input class="form-check-input me-2 candidate-check" type="checkbox" value="${p.id}" ${disabled?'disabled':''}>
+        <span class="fw-semibold"><i class="bi bi-person-fill me-1"></i>${p.name||p.id}
+          <span class="badge ${badgeClass(p.level)} ms-2">${levelText(p.level)}</span>
+        </span>
+      </label>`;
+  }).join('');
+  host.innerHTML = html;
+  $('#queueMeta').innerHTML = `มาแล้ววันนี้: <b>${arrivedList.length}</b> คน`;
+}*/
+
+function renderCandidates(){
+  // no-op: ปล่อยให้ renderQueue() (โมดูลล่าง) เป็นคนเรนเดอร์คิว
+  const host = document.getElementById('candidateList');
+  // ไม่เขียนอะไรลง DOM ที่นี่เพื่อไม่ให้ทับตาราง 1 แถว/คน
+  if (host) {
+    // intentionally empty
+  }
+}
+
+
+
+
+
+  function levelText(lv){ return ({1:'มือใหม่',2:'เบา',3:'กลาง',4:'หนัก',5:'โปร'})[lv] || 'มือใหม่'; }
+  function badgeClass(lv){
+    const txt = levelText(lv);
+    return txt==='มือใหม่' ? 'bg-secondary'
+         : txt==='เบา'    ? 'bg-success'
+         : txt==='กลาง'   ? 'bg-info text-dark'
+         : txt==='หนัก'   ? 'bg-warning text-dark'
+         : 'bg-danger';
+  }
+
+  /* ---------- กำลังเล่น: แสดงทุกคอร์ทที่เลือก, มีแถบสีสถานะ, ทีม A/B + ไอคอน ---------- */
+  let unsubLive = null, liveMatches = [];
+  function renderPlayingGrid(){
+    const host = $('#playingList'); if (!host) return;
+    const courts = Array.from(activeCourts).sort((a,b)=> a-b);
+    if (!courts.length){
+      host.innerHTML = `<div class="text-muted small">— ยังไม่ได้เลือกคอร์ทที่ใช้งาน —</div>`;
+      return;
+    }
+    host.innerHTML = courts.map(no=>{
+      const m = liveMatches.find(x => Number(x.courtNo) === Number(no));
+      return renderCourtCard(no, m);
+    }).join('');
+
+	// wire: finish match per court
+	  host.querySelectorAll('.btn-finish').forEach(btn=>{
+		   btn.addEventListener('click', (e)=>{
+			   const id = e.currentTarget.dataset.id;
+				 finishMatch(id);
+			 });
+		  });
+  }
+
+async function finishMatch(matchId){
+  try{
+    const match = liveMatches.find(m => m.id === matchId);
+    if (!match) return;
+
+    // รองรับทั้ง playerIds และ players[]
+    const playerIds = (match.playerIds && match.playerIds.length)
+      ? match.playerIds
+      : (match.players || []).map(p => p && p.id).filter(Boolean);
+
+    const batch = writeBatch(db);
+
+    // ผู้เล่นกลับเข้าคิว: +1 เกม, reset เวลาเริ่มรอ, ตั้งสถานะ queued (ไม่ยุ่งกับ paused เดิม)
+    playerIds.forEach(pid=>{
+      const pref = doc(db, "groups", gid(), "play_sessions", dateKey, "participants", pid);
+      batch.set(pref, { status: "queued" }, { merge: true });
+      batch.update(pref, {
+        gamesPlayed: increment(1),
+        waitingSince: serverTimestamp()
+      });
+    });
+
+    // ปิดแมตช์: finished + เคลียร์ court
+    const mref = doc(db, "groups", gid(), "play_sessions", dateKey, "matches", matchId);
+    batch.update(mref, { status: "finished", lastCourtNo: (match && match.courtNo) ? match.courtNo : null, courtNo: null, endedAt: serverTimestamp() });
+
+    await batch.commit();
+    // live/queue UI จะอัปเดตเองจาก onSnapshot ที่คุณมีอยู่แล้ว
+  } catch(err){
+    console.error(err);
+    alert('จบเกมไม่สำเร็จ');
+  }
+}
+
+
+function computeReservedCourts() {
+  const set = new Set();
+  // live: คอร์ทที่กำลังเล่น = ห้ามเลือกซ้ำ
+  (liveMatches || []).forEach(m => { if (m.courtNo) set.add(Number(m.courtNo)); });
+  // queued: คิวอื่น ๆ ที่เลือกคอร์ทไว้แล้วก็ถือว่าจอง
+  (matchesQueued || []).forEach(m => { if (m.courtNo) set.add(Number(m.courtNo)); });
+  return set;
+}
+
+  
+
+
+
+// === Stats helpers: same-team / cross-team for "today only" ===
+function __pairKey(a,b){
+  if (!a || !b || a===b) return null;
+  return (a < b) ? `${a}|${b}` : `${b}|${a}`;
+}
+async function buildCoPlayIndexToday(){
+    try{ if (window.__coIdx && window.__coIdx.dk===dateKey && window.__coIdx.forceEmpty){ window.__coIdx.map = new Map(); return window.__coIdx.map; } } catch(_){}
+// use current gid() and dateKey from this module
+  const base = collection(db, "groups", gid(), "play_sessions", dateKey, "matches");
+  const snap = await getDocs(query(base, where("status","in",["live","finished"])));
+  const map = new Map();
+  snap.forEach(docSnap=>{
+    const m = { id: docSnap.id, ...(docSnap.data()||{}) };
+    const P = Array.from(m.players||[]).filter(Boolean);
+    if (P.length < 2) return;
+    const ids = P.map(x=>x && x.id).filter(Boolean);
+    const isSingles = (m.type||'doubles') === 'singles';
+    const A = isSingles ? [ids[0]].filter(Boolean) : [ids[0], ids[1]].filter(Boolean);
+    const B = isSingles ? [ids[1]].filter(Boolean) : [ids[2], ids[3]].filter(Boolean);
+    for (let i=0;i<A.length;i++){ for (let j=i+1;j<A.length;j++){ const k=__pairKey(A[i],A[j]); if(k){ const cur=map.get(k)||{same:0,cross:0}; cur.same++; map.set(k,cur);} } }
+
+// === Inline highlight helpers (today-only co-play index cache) ===
+function getMaxSameWithMates(pid, m, idxMap){
+  try{
+    const P = Array.from(m.players||[]).filter(Boolean);
+    const ids = P.map(x=>x.id).filter(Boolean);
+    if (!ids.includes(pid)) return 0;
+    const isSingles = (m.type||'doubles') === 'singles';
+    const A = isSingles ? [ids[0]].filter(Boolean) : [ids[0], ids[1]].filter(Boolean);
+    const B = isSingles ? [ids[1]].filter(Boolean) : [ids[2], ids[3]].filter(Boolean);
+    const isA = A.includes(pid);
+    const mates = (isA ? A : B).filter(x=>x!==pid);
+    let maxSame = 0;
+    mates.forEach(mid=>{
+      const k = __pairKey(pid, mid);
+      const st = k ? (idxMap.get(k) || {same:0, cross:0}) : {same:0, cross:0};
+      if (st.same > maxSame) maxSame = st.same;
+    });
+    return maxSame;
+  } catch(_){ return 0; }
+function getMaxCrossAgainstOpponents(pid, m, idxMap){
+  try{
+    const P = Array.from(m.players||[]).filter(Boolean);
+    const ids = P.map(x=>x.id).filter(Boolean);
+    if (!ids.includes(pid)) return 0;
+    const isSingles = (m.type||'doubles') === 'singles';
+    const A = isSingles ? [ids[0]].filter(Boolean) : [ids[0], ids[1]].filter(Boolean);
+    const B = isSingles ? [ids[1]].filter(Boolean) : [ids[2], ids[3]].filter(Boolean);
+    const inA = A.includes(pid);
+    const opps = inA ? B : A;
+    let maxCross = 0;
+    opps.forEach(oid=>{
+      const k = __pairKey(pid, oid);
+      const st = k ? (idxMap.get(k) || {same:0, cross:0}) : {same:0, cross:0};
+      if (st.cross > maxCross) maxCross = st.cross;
+    });
+    return maxCross;
+  } catch(_){ return 0; }
+}
+}
+window.__coIdx = window.__coIdx || { dk:null, map:null };
+async function ensureIdxToday(){
+  try{
+    if (window.__coIdx && window.__coIdx.dk === dateKey && window.__coIdx.map) return window.__coIdx.map;
+    const map = await buildCoPlayIndexToday();
+    window.__coIdx = { dk: dateKey, map };
+    return map;
+  } catch(_){ return new Map(); }
+}
+    for (let i=0;i<B.length;i++){ for (let j=i+1;j<B.length;j++){ const k=__pairKey(B[i],B[j]); if(k){ const cur=map.get(k)||{same:0,cross:0}; cur.same++; map.set(k,cur);} } }
+    for (const a of A){ for (const b of B){ const k=__pairKey(a,b); if(k){ const cur=map.get(k)||{same:0,cross:0}; cur.cross++; map.set(k,cur);} } }
+  });
+  return map;
+}
+function openStatsModalForMatch(m, idxMap){
+  try{
+    const P = Array.from(m.players||[]).filter(Boolean);
+    const ids = P.map(x=>x.id);
+    const names = P.map(x=>x.name||x.id);
+    let thead = '<tr><th class="text-nowrap">คน \ คู่</th>' + names.map(n=>`<th class="text-end">${n}</th>`).join('') + '</tr>';
+    let rows  = '';
+    for (let r=0;r<ids.length;r++){
+      let cols='';
+      for (let c=0;c<ids.length;c++){
+        if (r===c){ cols += '<td class="text-center">–</td>'; continue; }
+        const k = __pairKey(ids[r], ids[c]);
+        const st = k ? (idxMap.get(k) || {same:0, cross:0}) : {same:0, cross:0};
+const tdCls = (st.same>0) ? ' co-same-bg' : '';
+cols += `<td class="text-end"><span class="badge bg-success-subtle text-success co-badge-same">${st.same}</span> <span class="mx-1">|</span> <span class="text-danger">${st.cross}</span></td>`;
+      }
+      rows += `<tr><th class="text-nowrap">${names[r]}</th>${cols}</tr>`;
+    }
+    const html = `<div class="table-responsive"><table class="table table-sm align-middle co-matrix"><thead>${thead}</thead><tbody>${rows}</tbody></table></div><div class="small text-muted mt-1">ตัวเลข = จำนวนครั้งใน <b>วันเดียวกัน</b> ของผู้เล่นในกล่องนี้เท่านั้น (ทีมเดียว = สีเขียว, คนละทีม = สีแดง)</div>`;
+    const body = document.getElementById('matchStatsBody'); if (body) body.innerHTML = html;
+    const el = document.getElementById('matchStatsModal');
+    if (el){ const modal = bootstrap.Modal.getOrCreateInstance(el); modal.show(); }
+  } catch(err){ console.warn('[stats modal]', err); }
+}
+
+function renderQueued(list){
+  
+  try{ if (typeof ensureIdxToday==='function') ensureIdxToday(); } catch(_){}; // Track last hovered slot per match/team to drop at exact index
+  const lastHoverSlot = {};
+  // Bind hover tracking early so team-drop can read it
+  try{
+    const host = document.getElementById('queuedHost') || document;
+    host.querySelectorAll('.player-slot').forEach(slotEl=>{
+      slotEl.addEventListener('dragenter', ()=>{
+        try{
+          const mid  = slotEl.getAttribute('data-mid');
+          const idx  = Number(slotEl.getAttribute('data-slot'))||0;
+          const team = slotEl.closest('.team-drop')?.dataset.team || '';
+          lastHoverSlot[mid+':'+team] = idx;
+        } catch(_){ }
+      });
+    });
+  } catch(_){}
+// เรียงคิวจากน้อยไปมาก (queueOrder ASC), ถ้าไม่มีให้ถือเป็น 0
+  const __sortedQueued__ = Array.from(list||[]).sort((a,b)=>{
+    const qa = Number(a.queueOrder||0), qb = Number(b.queueOrder||0);
+    if (qa !== qb) return qa - qb;
+    // fallback: createdAt ASC (ถ้าเป็น Timestamp)
+    const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+    const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+    return ta - tb;
+  });
+
+  const host = document.querySelector('#standbyMatches'); if (!host) return;
+
+  const courts = Array.from(activeCourts).sort((a,b)=>a-b);
+  const reserved = computeReservedCourts();
+
+  const courtOptions = (courts.length?courts:Array.from({length:10},(_,i)=>i+1))
+    .map(no => {
+      const dis = reserved.has(Number(no)) ? 'disabled' : '';
+      return `<option value="${no}" ${dis}>คอร์ท ${no}</option>`;
+    }).join('');
+
+  // __rq_guard__
+  const __open = window.__sessionOpen === true;
+  host.innerHTML = (__sortedQueued__).map((m, idx)=>{
+    const P = Array.from(m.players||[]);
+    // เตรียม index ของช่อง A0,A1,B0,B1 เพื่อให้รู้ "slot" ที่แท้จริง
+    const idxA = [0,1].filter(i => !!P[i]);
+    const idxB = [2,3].filter(i => !!P[i]);
+
+    const chip = (idx)=>{
+      const p = P[idx];
+      if (!p) return (`<div class="player-slot empty border border-2 rounded px-2 py-2 mb-1 text-muted" data-mid="${m.id}" data-slot="${idx}">
+           <span class=\"small\">ว่าง</span>
+        </div>`
+      );
+      return (
+`<div class="player-chip d-flex align-items-center justify-content-between border rounded px-2 py-1 mb-1"
+     draggable="true" data-pid="${p.id}" data-mid="${m.id}" data-slot="${idx}" data-name="${p.name||p.id}" data-level="${Number(p.level||1)}">
+  <span><i class="bi bi-person-fill me-1"></i>${(()=>{try{const map=(window.__coIdx&&window.__coIdx.map)?window.__coIdx.map:null;if(!map)return (p.name||p.id);const maxSame=getMaxSameWithMates(p.id,m,map);const maxCross=(typeof getMaxCrossAgainstOpponents==='function')?getMaxCrossAgainstOpponents(p.id,m,map):0;const nm=(p.name||p.id);const dot=(maxCross>3)?'<span class="dot-red" title="เจอกันข้ามทีมบ่อย (>3)"></span>':'';if(maxSame>2){return `${dot}<span class=\"text-danger fw-bold\" title=\"ทีมเดียวกันซ้ำ (>2)\">${nm}</span>`;}return `${dot}${nm}`;} catch(_){return (p.name||p.id);}})()}
+    <span class="badge lv-${Number(p.level||1)}">${typeof levelText==='function' ? levelText(p.level) : (p.level||1)}</span>
+  </span>
+  <i class="bi bi-grip-vertical"></i>
+</div>`
+      );
+    };
+
+    const names = P.map(p=>p && p.name).filter(Boolean).join(' • ');
+
+    return (
+`<div class="match-card border rounded-3 p-2 mb-2" data-id="${m.id}" ">
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
+    <div class="d-flex align-items-center gap-2"> <span class="badge text-bg-secondary">คิวที่ #${m.queueOrder ?? (idx+1)}</span>
+      <!-- auto-assign court: combobox hidden
+      <select class="form-select form-select-sm sel-court d-none" style="width:140px">
+        <option value="">เลือกคอร์ท…</option>
+        ${courtOptions}
+      </select>
+      -->
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <button class="btn btn-sm btn-primary btn-ico btn-start" title="เริ่มเกม"><i class="bi bi-play-fill"></i></button>
+      <button class="btn btn-sm btn-outline-secondary btn-ico btn-shuffle" title="สลับภายในกล่อง"><i class="bi bi-shuffle"></i></button>
+            <button class="btn btn-sm btn-outline-secondary btn-ico btn-co-stats" title="สถิติทีม/ข้ามทีม"><i class="bi bi-graph-up"></i></button>
+      <button class="btn btn-sm btn-outline-danger btn-ico btn-cancel" title="ยกเลิก"><i class="bi bi-x-circle"></i></button>
+    </div>
+  </div>
+
+  <div class="row g-2">
+    <div class="col-md-6">
+      <div class="team card card-body py-2 team-drop" data-team="A" data-id="${m.id}">
+        <div class="small text-muted mb-1">ทีม A</div>
+        ${chip(idxA[0] ?? 0)}${chip(idxA[1] ?? 1)}
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="team card card-body py-2 team-drop" data-team="B" data-id="${m.id}">
+        <div class="small text-muted mb-1">ทีม B</div>
+        ${chip(idxB[0] ?? 2)}${chip(idxB[1] ?? 3)}
+      </div>
+    </div>
+  </div>
+
+  <div class="text-muted small mt-2"><i class="bi bi-people"></i> ${names || '— ยังไม่ครบ —'}</div>
+</div>`
+    );
+  }).join('') || `<div class="text-muted small">— ยังไม่มีคิวรอเล่น —</div>`;
+
+  // dragstart: chip (ส่ง mid + slot + pid + (name/level) เผื่อใช้ตอนสลับ)
+  host.querySelectorAll('.player-chip').forEach(el=>{
+    el.addEventListener('dragstart', (e)=>{
+      const data = {
+        type: 'chip',
+        pid: e.currentTarget.dataset.pid,
+        mid: e.currentTarget.dataset.mid,
+        slot: Number(e.currentTarget.dataset.slot)||0,
+        name: e.currentTarget.dataset.name || '',
+        level: Number(e.currentTarget.dataset.level || '1')
+      };
+      e.dataTransfer.setData('application/json', JSON.stringify(data));
+    });
+    // อนุญาตให้ "drop จากแถวคิว (type=queue)" มาสลับกับชิปนี้ได้
+    el.addEventListener('dragover', (e)=>{ e.preventDefault(); el.classList.add('drag-over'); });
+    el.addEventListener('dragleave', ()=> el.classList.remove('drag-over'));
+    el.addEventListener('drop', async (e)=>{
+      e.preventDefault(); el.classList.remove('drag-over');
+      let payload = null;
+      try{ payload = JSON.parse(e.dataTransfer.getData('application/json')||''); } catch(_){}
+      if (!payload || (payload.type!=='queue' && payload.type!=='chip')) return; // ต้องลากจาก "คิว"
+      const targetMid  = el.dataset.mid;
+      const slot       = Number(el.dataset.slot)||0;
+
+      // โหลดแมตช์เป้าหมาย
+      const tgt = (matchesQueued||[]).find(x=> x.id === targetMid);
+      if (!tgt) return;
+      const players = Array.from(tgt.players||[]);
+      const moving = (payload.type==='chip')
+        ? { id: payload.pid, name: payload.name||payload.pid, level: Number(payload.level||1) }
+        : { id: payload.pid, name: payload.name||payload.pid, level: Number(payload.level||1) };
+
+      if (payload.type==='chip'){
+        const srcMid  = payload.mid;
+        const srcSlot = Number(payload.slot)||0;
+        const source = (matchesQueued||[]).find(x=> x.id === srcMid);
+        if (!source) return;
+        const srcPlayers = Array.from(source.players||[]);
+                // same-match swap (single update)
+        if (srcMid === targetMid){
+          const arr = Array.from(players||[]);
+          const maxLen = Math.max(arr.length, slot+1, srcSlot+1);
+          while (arr.length < maxLen) arr.push(null);
+          const temp = arr[slot];
+          arr[slot] = { id: payload.pid, name: payload.name||payload.pid, level: Number(payload.level||1) };
+          arr[srcSlot] = temp || null;
+          const clean = arr.filter(Boolean);
+          const ids   = clean.map(p=>p.id);
+          await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: clean, playerIds: ids });
+          try{ await warnIfPairsOverLimit({ players: clean }); } catch(_){}
+          return;
+        }
+// occupant at target slot (if any)
+        const targetOccupant = players[slot] || null;
+        // place moving into target slot
+        while (players.length < Math.max(players.length, slot+1)) players.push(null);
+        players[slot] = moving;
+        // place target occupant back to source slot (swap), or remove if empty
+        while (srcPlayers.length < Math.max(srcPlayers.length, srcSlot+1)) srcPlayers.push(null);
+        srcPlayers[srcSlot] = targetOccupant;
+
+        const cleanT = players.filter(Boolean);
+        const cleanS = srcPlayers.filter(Boolean);
+        const idsT = cleanT.map(p=>p.id);
+        const idsS = cleanS.map(p=>p.id);
+
+        const batch = writeBatch(db);
+        batch.update(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: cleanT, playerIds: idsT });
+        batch.update(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',srcMid),    { players: cleanS, playerIds: idsS });
+        await batch.commit();
+
+        await warnIfPairsOverLimit({ players: cleanT });
+        await warnIfPairsOverLimit({ players: cleanS });
+      } else {
+        // payload.type === 'queue' (เดิม)
+        const dup = players.findIndex(p=> p && p.id === moving.id);
+        if (dup >= 0 && dup !== slot) players.splice(dup,1);
+        const maxLen = Math.max(players.length, slot+1);
+        while (players.length < maxLen) players.push(undefined);
+        players[slot] = moving;
+        const clean = players.filter(Boolean);
+        const ids = clean.map(p=>p.id);
+        await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: clean, playerIds: ids });
+        await warnIfPairsOverLimit({ players: clean });
+      }
+    });
+  });
+
+  // team-drop: ยังรองรับลากจากคิวมาใส่ "ช่องว่าง" เช่นเดิม (ไม่เปลี่ยนเลย์เอาต์)
+  host.querySelectorAll('.team-drop').forEach(zone=>{
+    zone.addEventListener('dragover', (e)=>{ e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', ()=> zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', async (e)=>{
+      e.preventDefault(); zone.classList.remove('drag-over');
+      let payload = null;
+      try{ payload = JSON.parse(e.dataTransfer.getData('application/json')||''); } catch(_){}
+      if (!payload || (payload.type!=='queue' && payload.type!=='chip')) return; // รับเฉพาะลากจากคิว
+
+      const targetMid = zone.dataset.id;
+      const tgt = (matchesQueued||[]).find(x=> x.id === targetMid);
+      if (!tgt) return;
+      const players = Array.from(tgt.players||[]);
+
+      const isA = zone.dataset.team === 'A';
+      const slots = isA ? [0,1] : [2,3];
+      const keyHover = targetMid + ':' + (isA ? 'A' : 'B');
+      const targetIndex = (typeof lastHoverSlot !== 'undefined' && lastHoverSlot[keyHover] != null)
+        ? Number(lastHoverSlot[keyHover]) : null;
+      // pointer-based fallback when not hovering a specific slot
+      if (targetIndex === null) {
+        try {
+          const list = Array.from(zone.querySelectorAll('.player-slot'));
+          if (list.length) {
+            let best = null, min = Infinity;
+            list.forEach(el=>{
+              const r = el.getBoundingClientRect();
+              const cy = r.top + r.height/2;
+              const dy = Math.abs((e.clientY||0) - cy);
+              if (dy < min) { min = dy; best = el; }
+            });
+            if (best) targetIndex = Number(best.getAttribute('data-slot')) || (isA?0:2);
+          }
+        } catch(_){}
+      }
+
+// หาและวางตามตำแหน่งเป้าหมาย
+      if (payload.type==='chip' && targetIndex !== null){
+        const moving = { id: payload.pid, name: payload.name||payload.pid, level: Number(payload.level||1) };
+        const srcMid  = payload.mid;
+        const srcSlot = Number(payload.slot)||0;
+        const source  = (matchesQueued||[]).find(x=> x.id === srcMid);
+        if (!source) return;
+        if (srcMid === targetMid){
+          // same match: swap in single update at exact targetIndex
+          const arr = Array.from(players||[]);
+          const maxLen = Math.max(arr.length, targetIndex+1, srcSlot+1);
+          while (arr.length < maxLen) arr.push(null);
+          const temp = arr[targetIndex] || null;
+          arr[targetIndex] = moving;
+          arr[srcSlot] = temp;
+          const clean = arr.filter(Boolean);
+          const ids   = clean.map(p=>p.id);
+          await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: clean, playerIds: ids });
+          try{ await warnIfPairsOverLimit({ players: clean }); } catch(_){}
+          return;
+        }
+        // cross-match: swap moving with occupant at targetIndex
+        const srcPlayers = Array.from(source.players||[]);
+        const targetOccupant = players[targetIndex] || null;
+        while (players.length < Math.max(players.length, targetIndex+1)) players.push(null);
+        players[targetIndex] = moving;
+        while (srcPlayers.length < Math.max(srcPlayers.length, srcSlot+1)) srcPlayers.push(null);
+        srcPlayers[srcSlot] = targetOccupant;
+        const cleanT = players.filter(Boolean);
+        const cleanS = srcPlayers.filter(Boolean);
+        const idsT = cleanT.map(p=>p.id);
+        const idsS = cleanS.map(p=>p.id);
+        const batch = writeBatch(db);
+        batch.update(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: cleanT, playerIds: idsT });
+        batch.update(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',srcMid),    { players: cleanS, playerIds: idsS });
+        await batch.commit();
+        try{ await warnIfPairsOverLimit({ players: cleanT }); await warnIfPairsOverLimit({ players: cleanS }); } catch(_){}
+      
+      } else {
+        // default: find first empty slot in the team (old behavior), ensure no duplicates
+        const moving = { id: payload.pid, name: payload.name||payload.pid, level: Number(payload.level||1) };
+        const dup = players.findIndex(p=> p && p.id === moving.id);
+        if (dup >= 0) players.splice(dup,1);
+        let placed = false;
+        for (const sIdx of slots){ if (!players[sIdx]){ players[sIdx] = moving; placed = true; break; } }
+        if (!placed) return;
+        const clean = players.filter(Boolean);
+        const ids = clean.map(p=>p.id);
+        await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: clean, playerIds: ids });
+        try{ await warnIfPairsOverLimit({ players: clean }); } catch(_){}
+      }
+});
+  });
+
+  
+  
+// lastHoverSlot declared at top;
+  host.querySelectorAll('.player-slot').forEach(slotEl=>{
+    slotEl.addEventListener('dragenter', ()=>{
+      try{
+        const mid  = slotEl.getAttribute('data-mid');
+        const idx  = Number(slotEl.getAttribute('data-slot'))||0;
+        const team = slotEl.closest('.team-drop')?.dataset.team || '';
+        lastHoverSlot[mid+':'+team] = idx;
+      } catch(_){}
+    });
+  });
+
+  // EMPTY SLOT DROP (exact slot placement)
+  host.querySelectorAll('.player-slot.empty').forEach(slot=>{
+    slot.addEventListener('dragover', (e)=>{ e.preventDefault(); slot.classList.add('drag-over'); });
+    slot.addEventListener('dragleave', ()=> slot.classList.remove('drag-over'));
+    slot.addEventListener('drop', async (e)=>{
+      e.preventDefault(); slot.classList.remove('drag-over');
+      let payload = null; try{ payload = JSON.parse(e.dataTransfer.getData('application/json')||''); } catch(_){}
+      if (!payload || (payload.type!=='queue' && payload.type!=='chip')) return;
+      const id  = slot.getAttribute('data-mid');
+      const s   = Number(slot.getAttribute('data-slot'))||0;
+      const tgt = (matchesQueued||[]).find(x=> x.id === id);
+      if (!tgt) return;
+      const players = Array.from(tgt.players||[]);
+      let moving = { id: payload.pid, name: payload.name||payload.pid, level: Number(payload.level||1) };
+      if (payload.type==='chip'){
+        // same match swap via single update
+        if (payload.mid === id){
+          const arr = Array.from(players||[]);
+          const srcSlot = Number(payload.slot)||0;
+          const maxLen = Math.max(arr.length, s+1, srcSlot+1);
+          while (arr.length < maxLen) arr.push(null);
+          const temp = arr[s];
+          arr[s] = moving; arr[srcSlot] = temp || null;
+          const clean = arr.filter(Boolean); const ids = clean.map(p=>p.id);
+          await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',id), { players: clean, playerIds: ids });
+          try{ await warnIfPairsOverLimit({ players: clean }); } catch(_){ }
+          return;
+        } else {
+          // cross match: swap with occupant at this empty (no occupant)
+          const src = (matchesQueued||[]).find(x=> x.id === payload.mid);
+          if (!src) return;
+          const srcPlayers = Array.from(src.players||[]);
+          const srcSlot = Number(payload.slot)||0;
+          while (players.length < Math.max(players.length, s+1)) players.push(null);
+          players[s] = moving; srcPlayers[srcSlot] = null;
+          const cleanT = players.filter(Boolean); const idsT = cleanT.map(p=>p.id);
+          const cleanS = srcPlayers.filter(Boolean); const idsS = cleanS.map(p=>p.id);
+          const batch = writeBatch(db);
+          batch.update(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',id), { players: cleanT, playerIds: idsT });
+          batch.update(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',payload.mid), { players: cleanS, playerIds: idsS });
+          await batch.commit();
+          try{ await warnIfPairsOverLimit({ players: cleanT }); await warnIfPairsOverLimit({ players: cleanS }); } catch(_){}
+          return;
+        }
+      }
+      // payload type = queue -> place at exact empty slot, remove duplicate if exists
+      const dup = players.findIndex(p=> p && p.id === moving.id);
+      if (dup >= 0 && dup !== s) players[dup] = null;
+      const maxLen = Math.max(players.length, s+1);
+      while (players.length < maxLen) players.push(null);
+      players[s] = moving;
+      const clean = players.filter(Boolean);
+      const ids = clean.map(p=>p.id);
+      await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',id), { players: clean, playerIds: ids });
+      try{ await warnIfPairsOverLimit({ players: clean }); } catch(_){}
+    });
+  });
+// SHUFFLE
+  host.querySelectorAll('.btn-shuffle').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      const card = e.currentTarget.closest('.match-card');
+      const id   = card.getAttribute('data-id');
+      const m = (matchesQueued||[]).find(x=> x.id === id);
+      if (!m) return;
+      const arr = Array.from(m.players||[]);
+      for (let i=arr.length-1; i>0; i--){ const j = Math.floor(Math.random()*(i+1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+      const ids = arr.filter(Boolean).map(p=>p.id);
+      await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',id), { players: arr, playerIds: ids });
+    });
+  });
+
+  // START
+  host.querySelectorAll('.btn-start').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      const card = e.currentTarget.closest('.match-card');
+      const id   = card.getAttribute('data-id');
+      const reservedNow = computeReservedCourts();
+const all = Array.from(activeCourts).sort((a,b)=>a-b);
+const courtNo = all.find(no => !reservedNow.has(Number(no)));
+if (!courtNo){ showToast('ไม่มีคอร์ทว่างในขณะนี้','warning'); return; }
+
+      try{
+        const match = matchesQueued.find(m => m.id === id);
+        const ids = (match?.playerIds && match.playerIds.length)
+          ? match.playerIds
+          : (match?.players||[]).filter(Boolean).map(p=>p.id);
+        if ((match?.manual === true) && ids.length === 0){
+          await deleteDoc(doc(db, "groups", gid(), "play_sessions", dateKey, "matches", id));
+          return;
+        }
+
+        const batch = writeBatch(db);
+        ids.forEach(pid=>{
+          const pref = doc(db, "groups", gid(), "play_sessions", dateKey, "participants", pid);
+          batch.set(pref, { status: "playing" }, { merge: true });
+          batch.update(pref, { lastParticipatedAt: serverTimestamp() });
+        });
+        const mref = doc(db, "groups", gid(), "play_sessions", dateKey, "matches", id);
+        batch.update(mref, { status:"live", courtNo, startedAt: serverTimestamp() });
+        await batch.commit();
+      } catch(err){
+        console.error(err); alert('เริ่มแมตช์ไม่สำเร็จ');
+      }
+    });
+  });
+
+  // CANCEL
+  host.querySelectorAll('.btn-cancel').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      const card = e.currentTarget.closest('.match-card');
+      const id   = card.getAttribute('data-id');
+      try{
+        const match = matchesQueued.find(m => m.id === id);
+        const ids = (match?.playerIds && match.playerIds.length)
+          ? match.playerIds
+          : (match?.players||[]).filter(Boolean).map(p=>p.id);
+        if ((match?.manual === true) && ids.length === 0){
+          await deleteDoc(doc(db, "groups", gid(), "play_sessions", dateKey, "matches", id));
+          return;
+        }
+
+        const batch = writeBatch(db);
+                ids.forEach(pid=>{
+          const pref = doc(db, "groups", gid(), "play_sessions", dateKey, "participants", pid);
+          batch.set(pref, { status: "queued" }, { merge: true });
+          batch.update(pref, {
+            waitingSince: serverTimestamp()
+          });
+        });
+const mref = doc(db, "groups", gid(), "play_sessions", dateKey, "matches", id);
+        batch.update(mref, { status:"canceled", courtNo: null, canceledAt: serverTimestamp(), remark: "canceled" });
+        await batch.commit();
+      } catch(err){
+        console.error(err); alert('ยกเลิกไม่สำเร็จ');
+      }
+    });
+  });
+
+  // STATS (Match Stats Modal)
+  host.querySelectorAll('.btn-co-stats').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      try{
+        const card = e.currentTarget.closest('.match-card');
+        const id   = card.getAttribute('data-id');
+        const m = (matchesQueued||[]).find(x=> x.id === id);
+        if (!m) return;
+        const idxMap = await buildCoPlayIndexToday();
+        openStatsModalForMatch(m, idxMap);
+      } catch(err){ console.warn('[btn-co-stats]', err); }
+    });
+  });
+
+  /* DUP-CHECK TOAST */
+  try{
+    window._dupWarned = window._dupWarned || new Set();
+    (matchesQueued||[]).forEach(mm=>{
+      const P = Array.from(mm.players||[]).filter(Boolean);
+      const ids = P.map(x=>x.id).filter(Boolean);
+      if (!ids.length) return;
+      const seen = new Map();
+      ids.forEach(id=> seen.set(id, (seen.get(id)||0)+1));
+      const dups = [...seen.entries()].filter(([_,c])=> c>=2).map(([id])=>{
+        const f = P.find(pp=>pp.id===id);
+        return f ? (f.name||id) : id;
+      });
+      if (dups.length && !window._dupWarned.has(mm.id)){
+        window._dupWarned.add(mm.id);
+        const names = dups.join(', ');
+        showToast(`พบผู้เล่นซ้ำในแมตช์เดียวกัน: ${names}`, 'danger', true, 4500);
+      }
+    });
+  } catch(_){}
+
+
+  /* TAP-TO-SWAP BINDINGS (mobile-friendly). Coexists with drag & drop. */
+  (function(){
+    const host = document.getElementById('queuedHost') || document;
+    let tapSel = null; // { mid, pid, slot, name, level, el }
+
+    function isTouchish(){
+      return ( 'ontouchstart' in window ) || (navigator.maxTouchPoints>0);
+    }
+
+    function clearSelect(){
+      try{ tapSel?.el?.classList?.remove('tap-selected'); } catch(_){}
+      tapSel = null;
+    }
+
+    function selectChip(el){
+      clearSelect();
+      el.classList.add('tap-selected');
+      tapSel = {
+        el,
+        mid: el.dataset.mid,
+        pid: el.dataset.pid,
+        slot: Number(el.dataset.slot)||0,
+        name: el.dataset.name || '',
+        level: Number(el.dataset.level || '1')
+      };
+    }
+
+    async function commitSameMatchSwap(targetEl){
+      const targetMid  = targetEl.dataset.mid;
+      const targetSlot = Number(targetEl.dataset.slot)||0;
+      const srcMid = tapSel.mid, srcSlot = tapSel.slot;
+      if (!targetMid || srcMid!==targetMid) return false;
+
+      const tgt = (window.matchesQueued||[]).find(x=> x.id===targetMid);
+      if (!tgt) return false;
+      const arr = Array.from(tgt.players||[]);
+      const maxLen = Math.max(arr.length, srcSlot+1, targetSlot+1);
+      while (arr.length<maxLen) arr.push(null);
+      const moving = { id: tapSel.pid, name: tapSel.name||tapSel.pid, level: Number(tapSel.level||1) };
+      const temp = arr[targetSlot];
+      arr[targetSlot] = moving;
+      arr[srcSlot] = temp || null;
+      const clean = arr.filter(Boolean);
+      const ids   = clean.map(p=>p.id);
+      await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: clean, playerIds: ids });
+      try{ await warnIfPairsOverLimit({ players: clean }); } catch(_){}
+      return true;
+    }
+
+    async function commitCrossMatchSwap(targetMid, targetSlot){
+      const sourceMid = tapSel.mid;
+      const src = (window.matchesQueued||[]).find(x=> x.id===sourceMid);
+      const tgt = (window.matchesQueued||[]).find(x=> x.id===targetMid);
+      if (!src || !tgt) return false;
+      const srcPlayers = Array.from(src.players||[]);
+      const tgtPlayers = Array.from(tgt.players||[]);
+      const srcSlot = tapSel.slot;
+      const moving = { id: tapSel.pid, name: tapSel.name||tapSel.pid, level: Number(tapSel.level||1) };
+      const maxT = Math.max(tgtPlayers.length, targetSlot+1);
+      while (tgtPlayers.length<maxT) tgtPlayers.push(null);
+      const occupant = tgtPlayers[targetSlot] || null;
+      tgtPlayers[targetSlot] = moving;
+      const maxS = Math.max(srcPlayers.length, srcSlot+1);
+      while (srcPlayers.length<maxS) srcPlayers.push(null);
+      srcPlayers[srcSlot] = occupant;
+      const cleanT = tgtPlayers.filter(Boolean), idsT = cleanT.map(p=>p.id);
+      const cleanS = srcPlayers.filter(Boolean), idsS = cleanS.map(p=>p.id);
+      const batch = writeBatch(db);
+      batch.update(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: cleanT, playerIds: idsT });
+      batch.update(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',sourceMid), { players: cleanS, playerIds: idsS });
+      await batch.commit();
+      try{ await warnIfPairsOverLimit({ players: cleanT }); await warnIfPairsOverLimit({ players: cleanS }); } catch(_){}
+      return true;
+    }
+
+    function nearestSlotIndexInZone(zoneEl, clientY){
+      const list = Array.from(zoneEl.querySelectorAll('.player-slot'));
+      if (!list.length) return null;
+      let best=null, min=Infinity;
+      list.forEach(el=>{
+        const r = el.getBoundingClientRect();
+        const cy = r.top + r.height/2;
+        const dy = Math.abs((clientY||0) - cy);
+        if (dy<min){ min=dy; best=el; }
+      });
+      return best? Number(best.getAttribute('data-slot')) : null;
+    }
+
+    // Only enable on touch-capable devices, keep DnD intact for desktop
+    if (!isTouchish()) return;
+
+    // Chip tap
+    host.querySelectorAll('.player-chip').forEach(el=>{
+      el.addEventListener('click', (e)=>{
+        // Ignore if user is clicking inner controls later (not present now)
+        if (!tapSel) { selectChip(el); return; }
+        // If already selecting -> treat as tap target (swap with it)
+        (async ()=>{
+          if (await commitSameMatchSwap(el)) clearSelect();
+        })();
+      }, {passive:true});
+    });
+
+    // Empty slot tap
+    host.querySelectorAll('.player-slot.empty').forEach(slot=>{
+      slot.addEventListener('click', (e)=>{
+        if (!tapSel) return;
+        const targetMid  = slot.getAttribute('data-mid');
+        const targetSlot = Number(slot.getAttribute('data-slot'))||0;
+        (async ()=>{
+          if (tapSel.mid === targetMid){
+            // same match move/swap with empty (just move)
+            const tgt = (window.matchesQueued||[]).find(x=> x.id===targetMid);
+            if (!tgt) return clearSelect();
+            const arr = Array.from(tgt.players||[]);
+            const maxLen = Math.max(arr.length, targetSlot+1, tapSel.slot+1);
+            while (arr.length<maxLen) arr.push(null);
+            const moving = { id: tapSel.pid, name: tapSel.name||tapSel.pid, level: Number(tapSel.level||1) };
+            arr[targetSlot] = moving;  // empty slot becomes moving
+            arr[tapSel.slot] = null;
+            const clean = arr.filter(Boolean);
+            const ids   = clean.map(p=>p.id);
+            await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: clean, playerIds: ids });
+            try{ await warnIfPairsOverLimit({ players: clean }); } catch(_){}
+            clearSelect();
+          }else{
+            // cross match move: occupant is empty, so remove from source and add to target
+            await commitCrossMatchSwap(targetMid, targetSlot);
+            clearSelect();
+          }
+        })();
+      }, {passive:true});
+    });
+
+    // Team zone tap (if not on chip/slot) -> place to nearest slot (or first empty)
+    host.querySelectorAll('.team-drop').forEach(zone=>{
+      zone.addEventListener('click', (e)=>{
+        if (!tapSel) return;
+        // If click bubbled from chip/slot, those handlers above already ran
+        const targetMid = zone.getAttribute('data-id');
+        const idx = nearestSlotIndexInZone(zone, e.clientY) ?? (zone.dataset.team==='A' ? 0 : 2);
+        (async ()=>{
+          await commitCrossMatchSwap(targetMid, idx);
+          clearSelect();
+        })();
+      }, {passive:true});
+    });
+
+    // Tap outside to cancel
+    document.addEventListener('click', (e)=>{
+      const t = e.target;
+      if (t.closest('.player-chip') || t.closest('.player-slot') || t.closest('.team-drop')) return;
+      clearSelect();
+    }, {capture:true, passive:true});
+  })();
+
+}
+
+
+
+
+
+
+
+  function renderCourtCard(no, match){
+    const statusBar = match ? 'status-live' : 'status-idle';
+    const badgeCls  = match ? 'bg-success' : 'bg-secondary';
+    const statusTxt = match ? 'กำลังเล่น' : 'ว่าง';
+
+    // จัดทีม A/B จาก players (คู่=4คน → [0,1]=A, [2,3]=B; เดี่ยว=2คน)
+    let teamA = [], teamB = [];
+if (match && Array.isArray(match.players)){
+  const arr = match.players;
+  const btn = (p)=> p ? `${p.name||p.nickname||p.displayName||'-'}` : '-';
+  if ((match.type||'doubles') === 'singles'){
+    teamA = [ btn(arr[0]) ];
+    teamB = [ btn(arr[1]) ];
+  } else {
+    teamA = [ btn(arr[0]), btn(arr[1]) ];
+    teamB = [ btn(arr[2]), btn(arr[3]) ];
+  }
+}
+
+    return `
+    <div class="court-card position-relative border rounded-3 mb-2">
+      <div class="status-bar ${statusBar}"></div>
+      <div class="p-2">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="fw-semibold"><i class="bi bi-geo-alt"></i> คอร์ท ${no}</div>
+          <div class="badge ${badgeCls}">${statusTxt}</div>
+		   ${match ? `<button class="btn btn-sm btn-outline-danger btn-finish" data-id="${match.id}">
+		  <i class="bi bi-flag-checkered"></i> จบเกม
+	      </button>` : ``}
+        </div>
+        ${match ? `
+        <div class="row g-2">
+          <div class="col-md-6">
+            <div class="team card card-body py-2">
+              <div class="small text-muted mb-1">ทีม A</div>
+              ${teamA.map(n=>`<div class="d-flex align-items-center gap-2"><i class="bi bi-person-fill"></i><span>${n}</span></div>`).join('')}
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="team card card-body py-2">
+              <div class="small text-muted mb-1">ทีม B</div>
+              ${teamB.map(n=>`<div class="d-flex align-items-center gap-2"><i class="bi bi-person-fill"></i><span>${n}</span></div>`).join('')}
+            </div>
+          </div>
+        </div>` : `<div class="text-muted small">— ไม่มีแมตช์ —</div>`}
+      </div>
+    </div>`;
+  }
+
+  /* ---------- Subscribe/Resubscribe ---------- */
+ function resubscribe(){
+
+  // arrived participants
+  unsubArrived?.(); unsubArrived = onSnapshot(
+    query(collection(db, "groups", gid(), "play_sessions", dateKey, "participants"), where("arrived","==",true)),
+    (snap)=>{
+      arrivedList = snap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
+      arrivedList.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+     // renderCandidates();
+    });
+
+  // queued matches
+  unsubQueued?.(); unsubQueued = onSnapshot(
+    query(collection(db, "groups", gid(), "play_sessions", dateKey, "matches"),
+      where("status","==","queued"),
+      orderBy("createdAt","desc") // คุณบอกว่าสร้าง index แล้ว ใช้ได้
+    ),
+    (snap)=>{
+      matchesQueued = snap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
+      renderQueued(matchesQueued);
+      // อัปเดต disable ของรายบุคคลเมื่อมีคิวใหม่
+	  window.__QUEUED_PLAYERS = new Set(matchesQueued.flatMap(m => m.playerIds || []));
+     
+      // สร้าง mapping pid -> queueOrder (ค่าต่ำสุดถ้าซ้ำ)
+      const qmap = new Map();
+      matchesQueued.forEach(mm => {
+        const qo = Number(mm.queueOrder||0);
+        (mm.playerIds||[]).forEach(pid => {
+          if (!qmap.has(pid)) qmap.set(pid, qo);
+          else qmap.set(pid, Math.min(qmap.get(pid), qo));
+        });
+      });
+      window.__QUEUED_ORDER = qmap;
+// renderCandidates();
+    });
+
+  // live matches
+  unsubLive?.(); unsubLive = onSnapshot(
+    query(collection(db, "groups", gid(), "play_sessions", dateKey, "matches"),
+      where("status","==","live"),
+      orderBy("startedAt","desc")
+    ),
+    (snap)=>{
+      liveMatches = snap.docs.map(d => ({ id:d.id, ...(d.data()||{}) }));
+      window.liveMatches = liveMatches;
+      renderPlayingGrid();
+      // อัปเดตรายบุคคล (disable คนที่กำลังเล่น)
+	  window.__LIVE_PLAYERS = new Set(liveMatches.flatMap(m => m.playerIds || []));
+      //renderCandidates();
+    });
+}
+if (typeof window!=='undefined') window.resubscribe = resubscribe;
+
+
+
+  /* ---------- Boot ---------- */
+  document.addEventListener('DOMContentLoaded', ()=>{
+    loadActiveCourts();      // อ่านคอร์ทใช้งาน (ดีฟอลต์ 1–10)
+    resubscribe();           // ผูก realtime ทั้งซ้าย/ขวา
+  });
+
+
+
+// สุ่มจัดแมตช์จาก "คิวที่พร้อมเล่น" โดยไม่ต้องเลือกเช็กบ็อกซ์
+document.getElementById('btnCreateMatches')?.addEventListener('click', async ()=>{
+  if (!window.__sessionOpen) { alert('ต้องเปิดคอร์ทก่อน'); return; }
+  const occ = occupiedIdsFrom(); // คนที่ติด queued/live
+  const now = Date.now();
+
+  // set คนที่เพิ่งเล่นล่าสุด (หา max จาก lastParticipatedAt)
+  const sourceList = (arrivedList || queuedList || []);
+const lastMax = Math.max(
+  0,
+  ...sourceList.map(p => p.lastParticipatedAt?.toMillis ? p.lastParticipatedAt.toMillis() : 0)
+);
+
+  // คนพร้อมเล่น
+  const readyAll = (arrivedList || [])
+    .filter(p => {
+      const isPaused  = !!p.paused;
+      const occupied  = occ.has(p.id);
+      const isPlaying = p.status === 'playing' || p.status === 'live';
+      return !isPaused && !occupied && !isPlaying;
+    })
+    .map(p => {
+      const waitedMs = p.waitingSince?.toMillis ? (now - p.waitingSince.toMillis()) : 0;
+      const lastMs   = p.lastParticipatedAt?.toMillis ? p.lastParticipatedAt.toMillis() : 0;
+      return { ...p, waitedMs, lastMs };
+    })
+    // เรียงคนที่รอนานก่อน
+    .sort((a,b) => (b.waitedMs - a.waitedMs) || (a.name||'').localeCompare(b.name||''));
+
+  if (readyAll.length < 4) {
+    alert('คนในคิวที่พร้อมเล่นไม่พอ (ต้องอย่างน้อย 4 คน)');
+    return;
+  }
+
+  // แบ่งกลุ่ม: notRecent = คนที่ไม่ได้มี lastMs เท่ากับ lastMax (ไม่ได้เพิ่งเล่นล่าสุด)
+  const notRecent = readyAll.filter(p => p.lastMs !== lastMax);
+  const recent    = readyAll.filter(p => p.lastMs === lastMax);
+
+  const want = parseInt(document.getElementById('matchesToCreate')?.value || '1', 10);
+  let created = 0;
+
+  // function หยิบ 4 คน: พยายามใช้ notRecent ก่อน ถ้าไม่พอค่อยเติม recent
+  async function createOne(){
+    if ((notRecent.length + recent.length) < 4) return false;
+    const pick = [];
+    while (pick.length < 4 && notRecent.length) pick.push(notRecent.shift());
+    while (pick.length < 4 && recent.length)    pick.push(recent.shift());
+    const four = pick.map(p => ({ id:p.id, name:p.name||p.id, level:p.level||1 }));
+
+   const currentMax = Math.max(0, ...(matchesQueued||[]).map(mm => mm.queueOrder||0));
+	//const currentMax = Math.max(0, ...((matchesQueued||[]).map(mm => Number(mm.queueOrder||0))));
+
+    await addDoc(collection(db, "groups", gid(), "play_sessions", dateKey, "matches"), {
+      type: "doubles",
+      playerIds: four.map(p => p.id),
+      players: four,
+      status: "queued",
+      courtNo: null,
+      createdAt: serverTimestamp(),
+      queueOrder: currentMax + 1
+    });
+
+// ===== จัดแมตช์เอง: สร้างกล่องว่าง 1 กล่อง ต่อการกด 1 ครั้ง (bind once) =====
+if (!window.__manualListenerBound){
+  window.__manualListenerBound = true;
+  document.getElementById('btnCreateManualMatch')?.addEventListener('click', async ()=>{
+    try{
+      if (!window.__sessionOpen) { (typeof showToast==='function'?showToast:alert)('ต้องเปิดคอร์ทก่อน', 'warning'); return; }
+      if (window.__creatingManual) return;
+      window.__creatingManual = true;
+  //    const currentMax = Math.max(0, ...(matchesQueued||[]).map(mm => Number(mm.queueOrder||0)));
+	  const currentMax = Math.max(0, ...((matchesQueued||[]).map(mm => Number(mm.queueOrder||0))));
+      await addDoc(collection(db, "groups", gid(), "play_sessions", dateKey, "matches"), {
+        type: "doubles",
+        playerIds: [],
+        players: [null, null, null, null],
+        status: "queued",
+        courtNo: null,
+        createdAt: serverTimestamp(),
+        queueOrder: currentMax + 1,
+        manual: true
+      });
+      if (typeof showToast==='function') showToast('สร้างแมตช์ว่างแล้ว', 'success');
+    } catch(err){
+      console.error('manual match create error', err);
+      (typeof showToast==='function'?showToast:alert)('สร้างแมตช์เองไม่สำเร็จ', 'danger');
+    }finally{
+      window.__creatingManual = false;
+    }
+  });
+}
+
+
+
+
+
+    return true;
+  }
+
+  for (let i=0; i<want; i++){
+    const ok = await createOne();
+    if (!ok) break;
+    created++;
+  }
+
+  if (created === 0) {
+    alert('ยังสร้างแมตช์ไม่ได้ — คนในคิวที่พร้อมเล่นไม่พอ');
+  }
+});
+
+// สุ่ม 4 คนที่ยังไม่ติดคิว/กำลังเล่น แล้วสร้าง 1 แมตช์
+document.getElementById('btnRandom4')?.addEventListener('click', async ()=>{
+  const occ = occupiedIdsFrom();
+  const available = arrivedList.filter(p => !occ.has(p.id));
+  if (available.length < 4) return alert('คนไม่พอ');
+
+  available.sort(()=>Math.random()-0.5);
+  const team = available.slice(0,4).map(p=>({ id:p.id, name:p.name||p.id, level:p.level||1 }));
+
+  const currentMax = Math.max(0, ...(matchesQueued||[]).map(mm => mm.queueOrder||0));
+  await addDoc(collection(db, "groups", gid(), "play_sessions", dateKey, "matches"), {
+    type: "doubles",
+    playerIds: team.map(p=>p.id),
+    players: team,
+    status: "queued",
+    courtNo: null,
+    createdAt: serverTimestamp(),
+    queueOrder: currentMax + 1
+  });
+});
+
+  addEventListener('group:changed', ()=>{ loadActiveCourts(); resubscribe(); });
+</script>
+
+
+<script type="module">
+  import * as GS from "./assets/js/group_state.js?v=20250812";
+  import { getFirestore, collection, getDocs, doc, writeBatch, serverTimestamp, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  function dateKeyFromPicker(){
+    const dp = document.getElementById('datePicker');
+    const v = (dp && dp.value) ? dp.value : null;
+    if (!v){
+      const d = new Date();
+      return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+    }
+    return v.replaceAll('-','');
+  }
+
+
+  const db = getFirestore();
+  const gid = () => (GS.getCurrentGroupId ? GS.getCurrentGroupId() : 'default');
+  const pick = document.getElementById('datePicker');
+
+  const marksCache = new Map(); // key = `${gid()}-YYYY-MM` -> Set(YYYYMMDD)
+  let sessionClosedAt = null;
+  function toKey(d){
+    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+    return `${y}${m}${day}`;
+  }
+  function ymKey(year, month){ return `${year}-${String(month).padStart(2,'0')}`; }
+
+  async function loadMarks(year, month){
+    const key = `${gid()}-${ymKey(year, month)}`;
+    if (marksCache.has(key)) return marksCache.get(key);
+    const last = new Date(year, month, 0).getDate();
+    const set = new Set();
+    // คิวรีแบบครั้งเดียวต่อวัน (ใช้ getDocs เพื่อลด listener)
+    await Promise.all(Array.from({length:last}, (_,i)=>{
+      const d = i+1;
+      const dk = `${year}${String(month).padStart(2,'0')}${String(d).padStart(2,'0')}`;
+      const coll = collection(db, "groups", gid(), "play_sessions", dk, "participants");
+      return getDocs(coll).then(snap => { if (!snap.empty) set.add(dk); }).catch(()=>{});
+    }));
+    marksCache.set(key, set);
+    return set;
+  }
+
+  async function refreshMarks(fp){
+  try{
+    if (!fp || typeof fp.redraw !== 'function' || fp.currentYear==null || fp.currentMonth==null) return;
+    const year = fp.currentYear, month = fp.currentMonth+1;
+    await loadMarks(year, month);
+    fp.redraw();
+  } catch(_){ /* ignore to avoid flatpickr timing errors */ }
+}
+
+  // ตั้งค่าเริ่มต้นให้ input เป็นวันนี้ถ้ายังว่าง
+  if (pick && !pick.value){
+    const d = new Date();
+    pick.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  // ผูก flatpickr เฉพาะ “หน้าที่แสดงผลปฏิทิน”
+  if (window.flatpickr && pick){
+    const fp = flatpickr(pick, {
+      dateFormat: 'Y-m-d', altInput: true, altFormat: 'd/m/Y',
+      defaultDate: pick.value || undefined,
+      onDayCreate: function(_, __, inst, dayElem){
+        try{
+          const dateObj = dayElem.dateObj || new Date(dayElem.getAttribute('aria-label'));
+          const key = toKey(dateObj);
+          const set = marksCache.get(`${gid()}-${ymKey(inst.currentYear, inst.currentMonth+1)}`);
+          if (set && set.has(key)) dayElem.classList.add('has-play');
+          else dayElem.classList.remove('has-play');
+        } catch(_){}
+      },
+      onReady: async  (_, __, inst)=> { await refreshMarks(inst); },
+      onMonthChange: async (_, __, inst)=> { await refreshMarks(inst); },
+      onYearChange: async  (_, __, inst)=> { await refreshMarks(inst); },
+      onOpen: async        (_, __, inst)=> { await refreshMarks(inst); },
+      onChange: () => {
+        // ui.js (จาก entry.js) ฟัง change อยู่แล้ว → แค่ปล่อย event ปกติให้มันจัดการ subscribe เอง
+        pick.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    // เวลาเปลี่ยนก๊วน → เคลียร์ cache แล้วรีเฟรช marks
+    window.addEventListener('group:changed', async ()=>{
+      marksCache.clear();
+      await refreshMarks(fp);
+    });
+  }
+
+
+// session open/close events -> affect ticker & rendering
+
+  async function resetQueueWaitStart(){
+    try{
+      const dk = dateKeyFromPicker();
+      const col = collection(db, "groups", gid(), "play_sessions", dk, "participants");
+      const snap = await getDocs(col, where('arrived','==',true));
+      const batch = writeBatch(db);
+      let changes = 0;
+      snap.forEach(d=>{
+        const p = d.data() || {};
+        const isQueued = (p.status === 'queued' || !p.status);
+        if (!p.paused && isQueued){
+          batch.update(doc(db, "groups", gid(), "play_sessions", dk, "participants", d.id), {
+            waitingSince: serverTimestamp()
+          });
+          changes++;
+        }
+      });
+      if (changes > 0) await batch.commit();
+    } catch(err){
+      console.error('resetQueueWaitStart error', err);
+    }
+  }
+addEventListener('session:closed', (e)=>{
+  try{ if (waitTicker) clearInterval(waitTicker); } catch(_){}
+  try{ waitTicker = null; } catch(_){}
+  try{ window.__sessionOpen = false; } catch(_){}
+  // force all visible wait cells to 0s immediately
+  try{ document.querySelectorAll('#candidateList .badge-wait').forEach(w=>{ if(w){ w.textContent='0m'; w.className='badge-wait'; }}); } catch(_){}
+  try{ renderQueue(); } catch(_){}
+});
+addEventListener('session:opened', async ()=>{
+  sessionClosedAt = null;
+  await resetQueueWaitStart();
+  renderQueue();
+  startWaitTicker();
+});
+</script>
+<script type="module">
+  // ใช้ Firebase App ที่ init ไว้แล้ว (ต้องมีการ init มาก่อนหน้าในโปรเจกต์)
+  import {getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, collection, query, onSnapshot, doc, updateDoc, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // ===== ตรวจว่ามี App แล้วหรือยัง =====
+  let app = getApps()[0] || null;
+  if (!app) {
+    console.error("Firebase App is not initialized. Init it before this page.");
+    // ถ้าต้องการให้หน้าเดียวจบ คุณสามารถ initializeApp({...}) ที่ไฟล์นี้ได้
+  }
+  const db = app ? getFirestore(app) : null;
+
+  // ===== Utils =====
+  const $  = (s, r=document)=> r.querySelector(s);
+  const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
+  const gid = ()=> (localStorage.getItem('currentGroupId') || 'default'); // เลี่ยงการใช้ไฟล์อื่น
+  const ymd = (d)=> `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const dkey = (str)=> (str||ymd(new Date())).replaceAll('-','');
+  const prettyWait = (ms)=>{
+  if (!ms || ms < 1000) return '0m';
+  const m = Math.floor(ms/60000);
+  return `${m}m`;
+};
+  const levelText = (lv)=>{
+    const map={1:'มือใหม่',2:'เบา',3:'กลาง',4:'หนัก',5:'โปร'};
+    if (typeof lv==='number') return map[lv]||'มือใหม่';
+    if (typeof lv==='string') return map[lv]||lv;
+    return 'มือใหม่';
+  };
+  const badgeLevel = (lv)=>{
+    const t = levelText(lv);
+    return t==='มือใหม่'?'bg-secondary'
+      : t==='เบา'    ?'bg-success'
+      : t==='กลาง'  ?'bg-info text-dark'
+      : t==='หนัก'  ?'bg-warning text-dark'
+      :               'bg-danger';
+  };
+
+
+// ===== State =====
+  let participants = [];   // [{id,name,level,gamesPlayed,status,waitingSince,paused}, ...]
+  let matchesQueued = [];  // ถ้ามีส่วนรอเล่น/กำลังเล่นอยู่แล้วจะเติมต่อภายหลัง
+  let liveMatches    = [];
+
+  // อ่านวันที่จาก datePicker
+  const dp = $('#datePicker');
+  if (dp && !dp.value) { dp.value = ymd(new Date()); }
+  let dateKey = dkey(dp?.value);
+
+  dp?.addEventListener('change', ()=>{
+    dateKey = dkey(dp.value);
+    resubscribeParticipants();
+  });
+
+  // ===== Subscribe: อ่านผู้เล่นทั้งหมดตามวันที่เลือก =====
+  let unsubParticipants = null;
+  function resubscribeParticipants(){
+    unsubParticipants && unsubParticipants();
+    if (!db) return;
+
+    const pCol = collection(db, "groups", gid(), "play_sessions", dateKey, "participants");
+    unsubParticipants = onSnapshot(query(pCol, where('arrived','==',true)), (snap)=>{
+      participants = snap.docs.map(d=>{
+        const raw=d.data()||{};
+        return {
+          id: d.id,
+          name: raw.name || d.id,
+          level: raw.level || 1,
+          gamesPlayed: raw.gamesPlayed || 0,
+          status: raw.status || 'queued',        // 'queued' | 'playing' | ...
+          waitingSince: raw.waitingSince || null, // Firestore Timestamp
+          paused: !!raw.paused
+        };
+      }).sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+      renderQueue();
+    });
+  }
+
+  // (เลือกใช้) ไอดีที่ถูกใช้อยู่ใน queued/live — เผื่อคุณจะเอาไปใช้กันจัดทีม/กันสุ่ม
+  function occupiedIdsFrom(){
+    const set = new Set();
+    [...(matchesQueued||[]), ...(liveMatches||[])].forEach(m => (m.playerIds||[]).forEach(id => set.add(id)));
+    return set;
+  }
+
+ // ===== helpers สำหรับคิวรู้สถานะจากกล่องอื่น =====
+function getLiveSet(){ return window.__LIVE_PLAYERS instanceof Set ? window.__LIVE_PLAYERS : new Set(); }
+function getQueuedSet(){ return window.__QUEUED_PLAYERS instanceof Set ? window.__QUEUED_PLAYERS : new Set(); }
+
+// ===== ตัวนับเวลารอแบบ realtime =====
+let waitTicker = null;
+function startWaitTicker(){
+  if (waitTicker) clearInterval(waitTicker);
+  if (typeof window !== 'undefined' && window.__sessionOpen === false){
+    try{ document.querySelectorAll('#candidateList .badge-wait').forEach(w=>{ if(w){ w.textContent='0m'; w.className='badge-wait'; }});} catch(_){ }
+    return;
+  }
+waitTicker = setInterval(()=>{
+    if (typeof window !== 'undefined' && window.__sessionOpen === false){
+      clearInterval(waitTicker); waitTicker = null;
+      try{ document.querySelectorAll('#candidateList .badge-wait').forEach(w=>{ if(w){ w.textContent='0m'; w.className='badge-wait'; }});} catch(_){ }
+      return;
+    }
+    const liveSet = getLiveSet();
+    const queuedSet = getQueuedSet();
+    const qmap = (window.__QUEUED_ORDER instanceof Map) ? window.__QUEUED_ORDER : null;
+    const now = Date.now();
+
+document.querySelectorAll('#candidateList tbody tr').forEach(row=>{
+      const id = row.getAttribute('data-id');
+      const p  = participants.find(x=>x.id===id);
+      if (!p) return;
+
+      const waitCell = row.querySelector('.qcell.q-wait .badge-wait');
+      const wrapCell = row.querySelector('.qcell.q-wait');
+      if (!waitCell) return;
+
+      const inLive = liveSet.has(id) || p.status === 'playing';
+      if (p.paused){
+        waitCell.textContent = '0m';
+        /* keep class update below */
+        wrapCell?.classList.remove('hot');
+		waitCell.className = 'badge-wait'
+      } else if (inLive){
+        waitCell.textContent = 'กำลังเล่น';
+		waitCell.className = 'badge-wait'
+        /* keep class update below */
+        wrapCell?.classList.remove('hot');
+      } else if (queuedSet.has(id)){
+        const qo = qmap ? qmap.get(id) : undefined;
+        waitCell.textContent = `รอเล่น #${qo ?? '?'}`;
+		waitCell.className = 'badge-wait'
+        /* keep class update below */
+        wrapCell?.classList.remove('hot');
+      } else { const ms = p.waitingSince?.toMillis ? (now - p.waitingSince.toMillis()) : 0;
+        waitCell.textContent = prettyWait(ms);
+		waitCell.className = 'badge-wait'
+        /* keep class update below */
+        if (ms > 20*60*1000) wrapCell?.classList.add('hot'); else wrapCell?.classList.remove('hot');
+      }
+    });
+  }, 1000);
+}
+// expose startWaitTicker globally for cross-module listeners
+if (typeof window !== 'undefined') window.startWaitTicker = startWaitTicker;
+
+
+// ===== Render: Queue (1 แถว/ผู้เล่น) =====
+// ===== Render: Queue (1 แถว/ผู้เล่น) — ใช้ <table> ชัดเจน =====
+
+function renderQueue(){
+  const host = document.querySelector('#candidateList'); if (!host) return;
+
+  if (!participants.length){
+    host.innerHTML = `<div class="text-muted small">— ยังไม่มีข้อมูลผู้เล่น —</div>`;
+    const m = document.getElementById('queueMeta'); if (m) m.textContent = 'ผู้เล่นทั้งหมด: 0 คน';
+    if (waitTicker) clearInterval(waitTicker);
+    return;
+  }
+
+  const liveSet   = getLiveSet();
+  const queuedSet = getQueuedSet();
+  const now = Date.now();
+
+  const rowsHTML = participants.map(p=>{
+    const inLive   = liveSet.has(p.id) || p.status === 'playing';
+    const waitedMs = p.waitingSince?.toMillis ? (now - p.waitingSince.toMillis()) : 0;
+    const qo = (window.__QUEUED_ORDER instanceof Map) ? window.__QUEUED_ORDER.get(p.id) : undefined;
+    const waitTxt = (!window.__sessionOpen) ? '0m' : (p.paused ? '0m' : (inLive ? 'กำลังเล่น' : (queuedSet.has(p.id) ? (`รอเล่น #${qo ?? '?'}`) : prettyWait(waitedMs))));
+   const waitClass = inLive ? 'text-success-emphasis' : (queuedSet.has(p.id) ? 'text-warning' : '');
+	const isHot    = !inLive && waitedMs > (20*60*1000);
+
+    return `
+      <tr data-id="${p.id}" class="${p.paused ? 'opacity-75' : ''}">
+        <td class="align-middle qcell q-name"><i class="bi bi-grip-vertical me-2 drag-handle" draggable="true" title="ลากเพื่อจัดทีม"></i>
+          ${p.paused ? `<span class="dot-red" title="หยุดเล่น"></span>` : ``}
+          <span class="fw-semibold">${p.name} <span class="badge lv-${Number(p.level||1)}">${levelText(p.level)}</span></span>
+        </td>
+        <td class="align-middle text-center">${p.gamesPlayed || 0}&nbsp;<button class="btn btn-link p-0 js-player-info" data-pid="${p.id||''}"><i class="bi bi-people-fill"></i></button></td>
+        <td class="align-middle qcell q-wait">
+          <span class="badge-wait ${waitClass}">\${waitTxt}</span>
+        </td>
+        <td class="align-middle text-center">
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input toggle-paused" type="checkbox" ${p.paused?'checked':''} data-id="${p.id}">
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:40%">ชื่อ</th>
+            <th style="width:20%">เล่นแล้ว</th>
+            <th style="width:20%">สถานะ</th>
+            <th style="width:20%">หยุดเล่น</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHTML}</tbody>
+      </table>
+    </div>`;
+
+  const meta = document.getElementById('queueMeta');
+  if (meta) meta.innerHTML = `ผู้เล่นทั้งหมด: <b>${participants.length}</b> คน`;
+
+  // Toggle paused
+  host.querySelectorAll('.toggle-paused').forEach(sw=>{
+    sw.addEventListener('change', async (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const on = e.currentTarget.checked;
+      try{
+        await updateDoc(doc(db,"groups",gid(),"play_sessions",dateKey,"participants",id), on ? { paused:true, waitingSince: null } : { paused:false, waitingSince: serverTimestamp() });
+      } catch(err){
+        console.error(err); alert('อัปเดตหยุดเล่นไม่สำเร็จ'); e.currentTarget.checked = !on;
+      }
+    });
+  });
+
+  // --- DnD: ทำให้แถวคิวลากได้ (ไปแทนชิป หรือไปเติมช่องว่าง) ---
+  host.querySelectorAll('tbody tr[data-id]').forEach(row=>{
+    row.setAttribute('draggable','true');
+    row.addEventListener('dragstart', (e)=>{
+      const pid = row.getAttribute('data-id');
+      // guard: ห้ามเลือกถ้าอยู่ในคิวหรือกำลังเล่น
+      const inQueued = (window.__QUEUED_PLAYERS instanceof Set) && window.__QUEUED_PLAYERS.has(pid);
+      const inLive = (window.liveMatches||[]).some(m => (m.playerIds||[]).includes(pid));
+      if (inQueued || inLive){
+        const qo = (window.__QUEUED_ORDER instanceof Map) ? window.__QUEUED_ORDER.get(pid) : undefined;
+        const msg = inQueued ? (`ผู้เล่นอยู่ในสถานะ รอเล่น #${qo ?? '?' } แล้ว`) : 'ผู้เล่นกำลังเล่นอยู่';
+        if (typeof showToast==='function') showToast(msg, 'warning'); else alert(msg);
+        e.preventDefault(); e.stopPropagation(); return;
+      }
+
+      const name = row.querySelector('.fw-semibold')?.childNodes?.[0]?.textContent?.trim() || row.querySelector('.fw-semibold')?.textContent?.trim() || pid;
+      const badge = row.querySelector('.badge')?.textContent?.trim() || '';
+      // ถอดระดับเป็นตัวเลขแบบหยาบ
+      const levelMap = { 'มือใหม่':1,'เบา':2,'กลาง':3,'หนัก':4,'โปร':5, 'Beginner':1,'Intermediate':3,'Advanced':4,'Pro':5 };
+      const level = levelMap[badge] || 1;
+      const data = { type:'queue', pid, name, level };
+      e.dataTransfer.setData('application/json', JSON.stringify(data));
+    });
+
+    // รองรับ drop จาก "chip" เพื่อสลับ (chip -> row)
+    row.addEventListener('dragover', (e)=>{ e.preventDefault(); row.classList.add('table-active'); });
+    row.addEventListener('dragleave', ()=> row.classList.remove('table-active'));
+    row.addEventListener('drop', async (e)=>{
+      e.preventDefault(); row.classList.remove('table-active');
+      let payload = null;
+      try{ payload = JSON.parse(e.dataTransfer.getData('application/json')||''); } catch(_){}
+      if (!payload || payload.type!=='chip') return; // ต้องลากจากชิปในกล่องทีม
+
+      const pidToAdd = row.getAttribute('data-id');
+      const name     = row.querySelector('.fw-semibold')?.childNodes?.[0]?.textContent?.trim() || pidToAdd;
+      const badge    = row.querySelector('.badge')?.textContent?.trim() || '';
+      const levelMap = { 'มือใหม่':1,'เบา':2,'กลาง':3,'หนัก':4,'โปร':5, 'Beginner':1,'Intermediate':3,'Advanced':4,'Pro':5 };
+      const level    = levelMap[badge] || 1;
+
+      const targetMid = payload.mid;
+      const slot      = Number(payload.slot)||0;
+      // โหลดแมตช์เป้าหมาย
+      const tgt = (matchesQueued||[]).find(x=> x.id === targetMid);
+      if (!tgt) return;
+      const players = Array.from(tgt.players||[]);
+
+      // คนใหม่จากคิว
+      const incoming = { id: pidToAdd, name, level };
+      // ลบถ้าซ้ำในตำแหน่งอื่น
+      const dup = players.findIndex(p=> p && p.id === incoming.id);
+      if (dup >= 0 && dup !== slot) players.splice(dup,1);
+
+      // วางแทนที่ตำแหน่ง slot ของชิป
+      const maxLen = Math.max(players.length, slot+1);
+      while (players.length < maxLen) players.push(undefined);
+      players[slot] = incoming;
+
+      const clean = players.filter(Boolean);
+      const ids = clean.map(p=>p.id);
+      await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: clean, playerIds: ids });
+    });
+  });
+
+  // สามารถลาก "chip" ไปปล่อยที่ tbody (ที่ว่าง) เพื่อถอดออกจากแมตช์ได้
+  const tbody = host.querySelector('tbody');
+  if (tbody){
+    ['dragover','dragenter'].forEach(ev=> tbody.addEventListener(ev, e=>{ e.preventDefault(); }));
+    tbody.addEventListener('drop', async (e)=>{
+      let payload = null;
+      try{ payload = JSON.parse(e.dataTransfer.getData('application/json')||''); } catch(_){}
+      if (!payload || payload.type!=='chip') return;
+      const targetMid = payload.mid;
+      const slot = Number(payload.slot)||0;
+
+      const tgt = (matchesQueued||[]).find(x=> x.id === targetMid);
+      if (!tgt) return;
+      const players = Array.from(tgt.players||[]);
+      // เอาคนในช่อง slot ออก
+      if (players[slot]) players[slot] = undefined;
+      const clean = players.filter(Boolean);
+      const ids = clean.map(p=>p.id);
+      await updateDoc(doc(db,'groups',gid(),'play_sessions',dateKey,'matches',targetMid), { players: clean, playerIds: ids });
+    });
+  }
+
+  startWaitTicker();
+}
+// expose renderQueue globally for cross-module listeners
+if (typeof window !== 'undefined') window.renderQueue = renderQueue;
+
+
+
+
+  // ===== Boot =====
+  document.addEventListener('DOMContentLoaded', ()=>{
+    // ตั้งค่า datePicker เริ่มต้น แล้ว subscribe
+    if (dp && !dp.value) dp.value = ymd(new Date());
+    dateKey = dkey(dp?.value);
+    resubscribeParticipants();
+  });
+
+
+
+</script>
+
+<script type="module">
+// ===== Court Toggle (enhanced) =====
+import {
+  getFirestore, collection, getDocs, doc, writeBatch, setDoc, updateDoc,
+  serverTimestamp, increment
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+if (typeof window.__sessionOpen === 'undefined') window.__sessionOpen = false; // เริ่มต้น ปิดคอร์ท
+
+function dateKeyFromPicker(){
+  const dp = document.getElementById('datePicker');
+  const v = (dp && dp.value) ? dp.value : null;
+  if (!v) { // today fallback
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  }
+  return v.replaceAll('-','');
+}
+function getGroupId(){
+  try{
+    // ใช้ค่าใน localStorage ตามโมดูลอื่นในไฟล์นี้ (หลีกเลี่ยงการอิมพอร์ตไฟล์ state)
+    return localStorage.getItem('currentGroupId') || 'default';
+  } catch(_){ return 'default'; }
+}
+
+function updateToggleUI(){
+  const btn = document.getElementById('btnToggleCourts');
+  const createBtn = document.getElementById('btnCreateMatches');
+  const dp = document.getElementById('datePicker');
+  if (btn){
+    if (window.__sessionOpen){
+      btn.classList.remove('btn-outline-secondary'); btn.classList.add('btn-success');
+      btn.innerHTML = '<i class="bi bi-toggle-on"></i>';
+      btn.title = 'ปิดคอร์ท';
+    } else {
+      btn.classList.remove('btn-success'); btn.classList.add('btn-outline-secondary');
+      btn.innerHTML = '<i class="bi bi-toggle-off"></i>';
+      btn.title = 'เปิดคอร์ท';
+    }
+  }
+  if (createBtn) createBtn.disabled = !window.__sessionOpen;
+  if (dp) dp.disabled = !window.__sessionOpen; // ปิด/เปิดเลือกวันที่
+  // ปิด/เปิดปุ่มเริ่มเกมที่อยู่ในกล่องรอเล่น (ถ้ามีใน DOM ขณะนั้น)
+  document.querySelectorAll('#standbyMatches .btn-start').forEach(b=> b.disabled = !window.__sessionOpen);
+}
+window.updateToggleUI = updateToggleUI;
+
+function clearWaitUI(){
+  // เคลียร์ตัวเลขเวลาในคิวให้เป็น "—"
+  document.querySelectorAll('#candidateList .badge-wait').forEach(el=>{ el.textContent = '—'; });
+}
+
+async function cancelAllQueuedAndFinishLive(){
+  try{
+    const db = getFirestore();
+    const g  = getGroupId();
+    const dk = dateKeyFromPicker();
+    const mCol = collection(db, "groups", g, "play_sessions", dk, "matches");
+    const snap = await getDocs(mCol);
+
+    let batch = writeBatch(db), ops = 0;
+    const commit = async ()=>{ if (ops>0){ await batch.commit(); batch = writeBatch(db); ops = 0; } };
+
+    snap.forEach(docSnap => {
+      const m = docSnap.data() || {}; const mid = docSnap.id;
+      const ids = (m.playerIds && Array.isArray(m.playerIds) && m.playerIds.length)
+        ? m.playerIds : ((m.players||[]).map(x=>x && x.id).filter(Boolean));
+
+      const mref = doc(db, "groups", g, "play_sessions", dk, "matches", mid);
+
+      if (m.status === 'live' || m.status === 'playing'){
+        // จบเกมทั้งหมด
+        batch.update(mref, { status: "finished", lastCourtNo: (match && match.courtNo) ? match.courtNo : null, courtNo: null, endedAt: serverTimestamp() }); ops++;
+        (ids||[]).forEach(pid=>{
+          const pref = doc(db, "groups", g, "play_sessions", dk, "participants", pid);
+          batch.set(pref, { status: 'queued' }, { merge: true }); ops++;
+          batch.update(pref, { gamesPlayed: increment(1), waitingSince: serverTimestamp() }); ops++;
+        });
+      } else if (m.status === 'queued' || m.status === 'pending'){
+        // ยกเลิกคิวทั้งหมด
+        batch.update(mref, { status: 'canceled', courtNo: null, canceledAt: serverTimestamp() }); ops++;
+        (ids||[]).forEach(pid=>{
+          const pref = doc(db, "groups", g, "play_sessions", dk, "participants", pid);
+          batch.set(pref, { status: 'queued' }, { merge: true }); ops++;
+          batch.update(pref, { waitingSince: serverTimestamp() }); ops++;
+        });
+      }
+      // หมายเหตุ: Firestore batch จำกัด ~500 ops/commit — ถ้าแตะขีด ควร commit เป็นช่วง ๆ
+    });
+    await commit();
+  } catch(err){
+    console.error('[toggle] cancelAllQueuedAndFinishLive error', err);
+  }
+}
+
+async function closeSession(){
+try {
+    const db = getFirestore();
+    const g  = getGroupId();
+    const dk = dateKeyFromPicker();
+    const mref = doc(db, "groups", g, "play_sessions", dk, "meta", "session");
+    await setDoc(mref, { open: false, closedAt: serverTimestamp() }, { merge: true });
+  } catch(err){ console.error('closeSession meta write failed', err); }
+window.__sessionOpen = false;
+  // แจ้งโมดูลอื่น: ให้หยุด ticker/เรนเดอร์สถานะใหม่
+  dispatchEvent(new CustomEvent('session:closed', { detail: { at: Date.now() } }));
+  // เคลียร์กล่องต่าง ๆ
+  const standby = document.getElementById('standbyMatches'); if (standby) standby.innerHTML = '';
+  const playing = document.getElementById('playingList');   if (playing) playing.innerHTML = '';
+  clearWaitUI();
+  // อัปเดตสถานะใน Firestore
+  cancelAllQueuedAndFinishLive();
+ // await resetPlayedCounters();
+  updateToggleUI();
+}
+
+
+
+async function resetPlayedCounters(){
+  try{
+    const db = getFirestore();
+    const g  = getGroupId();
+    const dk = dateKeyFromPicker();
+    const col = collection(db, "groups", g, "play_sessions", dk, "participants");
+    const snap = await getDocs(col);
+    let batch = writeBatch(db), ops = 0;
+    async function flush(){ if (ops>0){ await batch.commit(); batch = writeBatch(db); ops = 0; } }
+    snap.forEach(d=>{
+      const pref = doc(db, "groups", g, "play_sessions", dk, "participants", d.id);
+      batch.set(pref, { gamesPlayed: 0 }, { merge: true }); ops++;
+      if (ops >= 450) { /* safety margin under 500 */ }
+    });
+    await flush();
+  } catch(err){ console.error('[toggle] resetPlayedCounters error', err); }
+}
+
+
+async function openSession(){
+  
+  try {
+    const db = getFirestore();
+    const g  = getGroupId();
+    const dk = dateKeyFromPicker();
+    const mref = doc(db, "groups", g, "play_sessions", dk, "meta", "session");
+    await setDoc(mref, { open: true, openedAt: serverTimestamp(), closedAt: null }, { merge: true });
+  } catch(err){ console.error('openSession meta write failed', err); }
+window.__sessionOpen = true;
+  dispatchEvent(new Event('session:opened'));
+  updateToggleUI();
+}
+function toggleCourts(){
+  if (window.__sessionOpen){
+    const ok = window.confirm('ยืนยันปิดคอร์ท?\n• ระบบจะหยุดนับเวลาและรีเซ็ตคิว\n• ยกเลิกคิวที่รอ & จบเกมที่เล่นอยู่');
+    if (!ok) return;
+    closeSession();
+  } else {
+    openSession();
+  }
+}
+
+window.toggleCourts = toggleCourts;
+
+// ป้องกันการ re-render แล้วปุ่มกลับมา enable ตอนปิดคอร์ท
+const standbyObs = new MutationObserver(()=>{
+  if (!window.__sessionOpen){
+    document.querySelectorAll('#standbyMatches .btn-start').forEach(b=> b.disabled = true);
+  }
+});
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('btnToggleCourts')?.addEventListener('click', toggleCourts);
+  const standby = document.getElementById('standbyMatches');
+  if (standby) standbyObs.observe(standby, { childList:true, subtree:true });
+  // เริ่มต้น: ปิดคอร์ท → ปิดปุ่ม/ปิด datePicker
+  updateToggleUI();
+  const createBtn = document.getElementById('btnCreateMatches'); if (createBtn) createBtn.disabled = true;
+  const dp = document.getElementById('datePicker'); if (dp) dp.disabled = true;
+});
+
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('btnAllReset')?.addEventListener('click', resetAll);
+
+});
+
+
+async function resetAllStat(){
+try {
+    const db = getFirestore();
+    const g  = getGroupId();
+    const dk = dateKeyFromPicker();
+    const mref = doc(db, "groups", g, "play_sessions", dk, "meta", "session");
+    await setDoc(mref, { open: false, closedAt: serverTimestamp() }, { merge: true });
+  } catch(err){ console.error('closeSession meta write failed', err); }
+window.__sessionOpen = false;
+  // แจ้งโมดูลอื่น: ให้หยุด ticker/เรนเดอร์สถานะใหม่
+  dispatchEvent(new CustomEvent('session:closed', { detail: { at: Date.now() } }));
+  // เคลียร์กล่องต่าง ๆ
+  const standby = document.getElementById('standbyMatches'); if (standby) standby.innerHTML = '';
+  const playing = document.getElementById('playingList');   if (playing) playing.innerHTML = '';
+  clearWaitUI();
+  // อัปเดตสถานะใน Firestore
+  cancelAllQueuedAndFinishLive();
+  await resetPlayedCounters();
+  
+  updateToggleUI();
+}
+
+
+// === Clear today's co-play stats (matrix in modal) ===
+function clearCoPlayStatsToday(){
+  try{
+    // reset in-memory cache for today's co-play index
+    const dk = (typeof dateKey !== 'undefined' && dateKey) ? dateKey :
+               (typeof dateKeyFromPicker === 'function' ? dateKeyFromPicker() : null);
+    window.__coIdx = { dk: dk, map: new Map(), forceEmpty: true };
+
+    // If stats modal is open, zero out current numbers
+    const body = document.getElementById('matchStatsBody');
+    if (body){
+      // same-team badges
+      body.querySelectorAll('.co-badge-same').forEach(el => { el.textContent = '0'; });
+      // cross-team counts (numeric spans inside TDs)
+      body.querySelectorAll('td .text-danger').forEach(el => {
+        const t = (el.textContent||'').trim();
+        if (/^\d+$/.test(t)) el.textContent = '0';
+      });
+    }
+    if (typeof showToast === 'function') showToast('เคลียร์สถิติของวันนี้แล้ว', 'success');
+  } catch(e){
+    console.warn('[clearCoPlayStatsToday]', e);
+  }
+}
+
+
+
+
+function resetAll(){
+	 
+			const ok = window.confirm('ยืนยันปิดคอร์ท?\n• ระบบจะหยุดนับเวลาและรีเซ็ตคิว\n• ยกเลิกคิวที่รอ & จบเกมที่เล่นอยู่\n• รีเซ็ตค่า “เล่นแล้ว” เป็น 0”\n• เคลียร์สถิติการเจอกัน (เมตริกซ์)');
+			 if (!ok){
+				return;
+			 } else {
+				
+				     try{
+						  if (typeof resetAllStat === 'function') 
+								{ 
+									resetAllStat(); 
+									clearCoPlayStatsToday();
+								}
+					  } catch(e){ console.error('[resetAllStat]', e); }
+				    
+			 }
+		
+}
+
+
+</script>
+
+
+<script type="module">
+function dateKeyFromPicker(){
+  const dp = document.getElementById('datePicker');
+  const v = (dp && dp.value) ? dp.value : null;
+  if (!v){
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  }
+  return v.replaceAll('-','');
+}
+
+  function getGid(){
+    try { const v = localStorage.getItem('currentGroupId'); return v || 'default'; } catch(_){ return 'default'; }
+  }
+
+import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+function resubscribeSessionMeta(){
+  try{
+    const db = getFirestore();
+    const g  = getGid();
+    const dk = dateKeyFromPicker();
+    const mref = doc(db, "groups", g, "play_sessions", dk, "meta", "session");
+    if (window.__metaUnsub) { try{ window.__metaUnsub(); } catch(_){ } }
+    window.__metaUnsub = onSnapshot(mref, (snap)=>{
+      const d = snap.data() || { open:false };
+      const open = !!d.open;
+      window.__sessionOpen = open;
+      if (typeof updateToggleUI === 'function') updateToggleUI();
+      // fire events so ticker/queue syncs with persisted state
+      if (open) dispatchEvent(new Event('session:opened'));
+      else      dispatchEvent(new CustomEvent('session:closed', { detail:{ at: Date.now() } }));
+    });
+  } catch(err){ console.error('resubscribeSessionMeta error', err); }
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  resubscribeSessionMeta();
+  // re-subscribe on custom group/date change events if available
+  addEventListener('group:changed', ()=>{ resubscribeSessionMeta(); });
+  // if the app dispatches a date-changed event, hook it similarly:
+  addEventListener('date:changed', ()=>{ resubscribeSessionMeta(); });
+});
+</script>
+
+
+
+<div id="toastHost" class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index:1080"></div>
+<script>
+function showToast(msg, variant){
+  try{
+    var host = document.getElementById('toastHost');
+    if(!host){ host = document.createElement('div'); host.id='toastHost'; host.className='position-fixed top-0 start-50 translate-middle-x p-3'; host.style.zIndex=1080; document.body.appendChild(host); }
+    var el = document.createElement('div');
+    el.className = 'toast align-items-center text-bg-'+(variant||'dark')+' border-0';
+    el.setAttribute('role','alert'); el.setAttribute('aria-live','assertive'); el.setAttribute('aria-atomic','true');
+    el.innerHTML = '<div class="d-flex"><div class="toast-body">'+ (msg||'') +'</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button></div>';
+    host.appendChild(el);
+    var t = new bootstrap.Toast(el, { delay: 2500 });
+    t.show();
+    setTimeout(function(){ if(el && el.parentNode) el.parentNode.removeChild(el); }, 3000);
+  } catch(e){ console.warn('toast failed', e); alert(msg); }
+}
+</script>
+
+<!-- Modal: Match Stats (today only) -->
+<div class="modal fade" id="matchStatsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">สถิติทีมเดียวกัน / ข้ามทีม — เฉพาะวันเดียวกัน</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+      </div>
+      <div class="modal-body">
+        <div id="matchStatsBody">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Toast container -->
+<div id="toastArea" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1080;"></div>
+
+
+<script>
+async function warnIfPairsOverLimit(matchObj){
+  try{
+    if (!matchObj) return;
+    const map = await (typeof ensureIdxToday==='function' ? ensureIdxToday() : Promise.resolve(new Map()));
+    const P = Array.from(matchObj.players||[]).filter(Boolean);
+    const ids = P.map(p=>p.id);
+    if (ids.length < 2) return;
+    const names = new Map(P.map(p=>[p.id, p.name||p.id]));
+    const seen = [];
+    for (let i=0;i<ids.length;i++){
+      for (let j=i+1;j<ids.length;j++){
+        const a = ids[i], b = ids[j];
+        const key = (a<b) ? `${a}|${b}` : `${b}|${a}`;
+        const st = map.get(key) || { same:0, cross:0 };
+        const tot = (Number(st.same)||0) + (Number(st.cross)||0);
+        if (tot >= 3) { // > 2 times today
+          seen.push(`${names.get(a)}–${names.get(b)}`);
+        }
+      }
+    }
+    if (seen.length){
+      const msg = `คำเตือน: คู่ ${seen.join(', ')} เจอกันมากกว่า 2 ครั้งแล้ววันนี้`;
+      (typeof showToast==='function' ? showToast : alert)(msg, 'warning', true, 4500);
+    }
+  } catch(e){ console.warn('[warnIfPairsOverLimit]', e); }
+}
+</script>
+
+
+<!-- Player Co-Play Modal -->
+<div class="modal fade" id="playerCoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">สถิติการเล่น : <span id="pcmName">—</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="pcmEmpty" class="text-center text-muted d-none">-------- ยังไม่ได้เล่น -----------</div>
+        <div class="table-responsive" id="pcmTableWrap">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>ชื่อคน</th>
+                <th class="text-center">ทีมเดียวกัน</th>
+                <th class="text-center">คนละทีม</th>
+              </tr>
+            </thead>
+            <tbody id="pcmBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(async function(){
+  try{
+    const { getFirestore, collection, getDocs, query, where } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const db = getFirestore();
+    const $ = (sel)=> document.querySelector(sel);
+    function gidSafe(){ try{ return (typeof gid==='function')? gid(): (localStorage.getItem('currentGroupId')||'default'); } catch(_){ return 'default'; } }
+    function dkSafe(){
+      try{ if (typeof dateKey==='string' && /^\d{8}$/.test(dateKey)) return dateKey; } catch(_){}
+      try{ if (typeof dateKeyFromPicker==='function') return dateKeyFromPicker(); } catch(_){}
+      const dp = document.getElementById('datePicker'); if (dp && dp.value) return dp.value.replace(/-/g,'');
+      const d=new Date(), y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), da=String(d.getDate()).padStart(2,'0'); return `${y}${m}${da}`;
+    }
+    function keyPair(a,b){ if(!a||!b||a===b) return null; return a<b? `${a}|${b}` : `${b}|${a}`; }
+
+    async function buildCoMap(){
+      const g = gidSafe(), dk = dkSafe();
+      try{
+        const base = collection(db, "groups", g, "play_sessions", dk, "matches");
+        let snap;
+        try{ snap = await getDocs(query(base, where("status","in",["live","finished"]))); } catch(_){ snap = await getDocs(base); }
+        const map = new Map(); const names = new Map();
+        snap.forEach(doc=>{
+          const m = doc.data()||{};
+          const P = Array.isArray(m.players)? m.players.filter(Boolean): [];
+          const ids = P.map(x=> x && x.id).filter(Boolean);
+          P.forEach(p=>{ if(p&&p.id){ names.set(p.id, p.name||p.nickname||p.displayName||p.id); } });
+          if (ids.length<2) return;
+          const isSingles = (String(m.type||m.gameType||m.mode||'').toLowerCase().startsWith('s')) || ids.length===2;
+          const A = isSingles ? [ids[0]].filter(Boolean) : [ids[0], ids[1]].filter(Boolean);
+          const B = isSingles ? [ids[1]].filter(Boolean) : [ids[2], ids[3]].filter(Boolean);
+          for (let i=0;i<A.length;i++) for (let j=i+1;j<A.length;j++){ const k=keyPair(A[i],A[j]); if(!k) continue; const cur=map.get(k)||{same:0,cross:0}; cur.same++; map.set(k,cur); }
+          for (let i=0;i<B.length;i++) for (let j=i+1;j<B.length;j++){ const k=keyPair(B[i],B[j]); if(!k) continue; const cur=map.get(k)||{same:0,cross:0}; cur.same++; map.set(k,cur); }
+          for (const a of A) for (const b of B){ const k=keyPair(a,b); if(!k) continue; const cur=map.get(k)||{same:0,cross:0}; cur.cross++; map.set(k,cur); }
+        });
+        return {map, names};
+      } catch(e){ console.warn('[co-map]', e); return {map:new Map(), names:new Map()}; }
+    }
+
+    window.openPlayerCoModal = async function(pid){
+      if (!pid) return;
+      const title = document.getElementById('pcmName');
+      const body  = document.getElementById('pcmBody');
+      const wrap  = document.getElementById('pcmTableWrap');
+      const empty = document.getElementById('pcmEmpty');
+      if (body) body.innerHTML = '';
+      if (title) title.textContent = pid;
+
+      const {map, names} = await buildCoMap();
+      const rows=[];
+      map.forEach((v,k)=>{
+        const [a,b]=k.split('|');
+        if (a===pid || b===pid){
+          const other = (a===pid)? b : a;
+          rows.push({ id: other, same: v.same||0, cross: v.cross||0 });
+        }
+      });
+      rows.sort((x,y)=> (y.same+y.cross) - (x.same+x.cross));
+
+      if (!rows.length){
+        wrap && wrap.classList.add('d-none');
+        empty && empty.classList.remove('d-none');
+      }else{
+        wrap && wrap.classList.remove('d-none');
+        empty && empty.classList.add('d-none');
+        rows.forEach(r=>{
+          const tr = document.createElement('tr');
+          const n  = names.get(r.id) || r.id;
+          tr.innerHTML = `<td>${n}</td><td class="text-center">${r.same}</td><td class="text-center">${r.cross}</td>`;
+          body.appendChild(tr);
+        });
+      }
+      const disp = (names.get(pid) || pid);
+      title && (title.textContent = disp);
+      const el = document.getElementById('playerCoModal');
+      if (el && window.bootstrap && bootstrap.Modal){
+        bootstrap.Modal.getOrCreateInstance(el).show();
+      }else{
+        el?.classList.add('show');
+      }
+    };
+
+    // Delegation: player chips + live names buttons
+    document.addEventListener('click', (e)=>{
+      const chip = e.target.closest('.player-chip, .js-player-info');
+      if (chip && chip.dataset && chip.dataset.pid){
+        e.preventDefault();
+        window.openPlayerCoModal(chip.dataset.pid);
+      }
+    });
+
+  } catch(e){ console.warn('[player modal init]', e); }
+})();
+</script>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  try{
+    const el = document.getElementById('datePicker');
+    if (el && window.flatpickr){
+      // if instance exists but no altInput, re-init minimally
+      if (el._flatpickr && !el._flatpickr.config.altInput){
+        const val = el._flatpickr.selectedDates?.[0] || el.value || null;
+        el._flatpickr.destroy();
+        flatpickr(el, {
+          dateFormat: 'Y-m-d',
+          altInput: true,
+          altFormat: 'd/m/Y',
+          defaultDate: val || undefined
+        });
+      }
+    }
+  } catch(e){ console.warn('[datePicker alt d/m/Y]', e); }
+});
+</script>
+
+
+
+<!-- Dev Wipe Panel (auto when ?dev=1) -->
+<script>
+// ===== Modular Firestore bootstrap (avoid compat mix) =====
+async function ensureDb(){
+  try{
+    if (window._modDb) return window._modDb;
+    const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    const fsMod  = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    let app = null;
+    try{ app = appMod.getApp(); } catch(_){
+      let cfg = window.FIREBASE_CONFIG || window.firebaseConfig || null;
+      if (!cfg && window.firebase && window.firebase.app){
+        try{ cfg = window.firebase.app().options || null; } catch(_){}
+      }
+      if (!cfg) throw new Error("ไม่พบ Firebase config (FIREBASE_CONFIG)");
+      app = appMod.initializeApp(cfg);
+    }
+    const db = fsMod.getFirestore(app);
+    window._modDb = db; return db;
+  } catch(e){ console.warn("[ensureDb]", e); throw e; }
+}
+async function __fw(){ return await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"); }
+function gidSafe(){
+  try{ return (typeof gid==='function') ? gid() : (localStorage.getItem('currentGroupId') || 'default'); } catch(_){ return localStorage.getItem('currentGroupId') || 'default'; }
+}
+function dateKeySafe(){
+  try{
+    if (typeof dateKey === 'string' && /^\d{8}$/.test(dateKey)) return dateKey;
+    if (typeof dateKeyFromPicker === 'function') return dateKeyFromPicker();
+    const dp = document.getElementById('datePicker');
+    if (dp && dp.value) return dp.value.replace(/-/g,'');
+  } catch(_){}
+  const d = new Date(); const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0');
+  return `${y}${m}${day}`;
+}
+async function __batchDeleteCol(db, colRef, page=300){
+  const { getDocs, writeBatch, limit, query } = await __fw();
+  while(true){
+    const q = query(colRef, limit(page));
+    const snap = await getDocs(q);
+    if (snap.empty) break;
+    const wb = writeBatch(db);
+    snap.forEach(d => wb.delete(d.ref));
+    await wb.commit();
+    await new Promise(r=>setTimeout(r, 20));
+  }
+}
+async function __wipeSessionDoc(db, sessionDocRef){
+  const { collection, deleteDoc } = await __fw();
+  const subs = ["participants","matches","queue_events","expense","expenses"];
+  for (const s of subs){
+    try{ await __batchDeleteCol(db, collection(sessionDocRef, s)); } catch(e){ console.warn('[wipe sub]', s, e); }
+  }
+  try{ await deleteDoc(sessionDocRef); } catch(e){ console.warn('[delete session doc]', e); }
+}
+async function hardWipeToday(){
+  try{
+    const ok = confirm("ล้างข้อมูลของวันนี้ทั้งหมด? (ลบ matches, participants ฯลฯ)");
+    if (!ok) return;
+    const { doc } = await __fw();
+    const db = await ensureDb();
+    const sref = doc(db, "groups", gidSafe(), "play_sessions", dateKeySafe());
+    await __wipeSessionDoc(db, sref);
+    window.__coIdx = { dk:null, map:new Map() };
+    try{ window.showToast && showToast("ล้างข้อมูลของวันนี้แล้ว", "success"); } catch(_){}
+  } catch(e){
+    console.warn("[hardWipeToday]", e);
+    alert("ล้างข้อมูลไม่สำเร็จ: " + (e && (e.message||e.code) || "unknown"));
+  }
+}
+async function hardWipeAll(){
+  try{
+    const phrase = prompt("พิมพ์ DELETE เพื่อลบข้อมูลการเล่นทั้งหมดของกลุ่มนี้");
+    if (phrase !== "DELETE") return;
+    const { collection, getDocs } = await __fw();
+    const db = await ensureDb();
+    const sessColl = collection(db, "groups", gidSafe(), "play_sessions");
+    const snap = await getDocs(sessColl);
+    let i=0;
+    for (const d of snap.docs){
+      await __wipeSessionDoc(db, d.ref);
+      if (++i % 10 === 0) await new Promise(r=>setTimeout(r, 30));
+    }
+    window.__coIdx = { dk:null, map:new Map() };
+    try{ window.showToast && showToast("ล้างข้อมูลทั้งหมดแล้ว", "success"); } catch(_){}
+  } catch(e){
+    console.warn("[hardWipeAll]", e);
+    alert("ล้างข้อมูลไม่สำเร็จ: " + (e && (e.message||e.code) || "unknown"));
+  }
+}
+// Floating Dev Panel
+(function(){
+  const boot = () => {
+    try{
+      const qs = new URLSearchParams(location.search);
+      const dev = qs.get('dev')==='1' || localStorage.getItem('devDanger')==='1';
+      if (!dev) return;
+      if (document.getElementById('devWipePanel')) return;
+      const panel = document.createElement('div');
+      panel.id = 'devWipePanel';
+      panel.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;display:flex;gap:8px;';
+      panel.innerHTML = '<button id="btnHardWipeToday" style="padding:6px 10px;border:1px solid #d33;background:#fff;color:#d33;border-radius:8px;cursor:pointer;">Wipe วันนี้</button>'+
+                        '<button id="btnHardWipeAll" style="padding:6px 10px;border:1px solid #b00;background:#b00;color:#fff;border-radius:8px;cursor:pointer;">Wipe ทั้งหมด</button>';
+      document.body.appendChild(panel);
+      document.getElementById('btnHardWipeToday').addEventListener('click', hardWipeToday);
+      document.getElementById('btnHardWipeAll').addEventListener('click', hardWipeAll);
+    } catch(e){ console.warn('[dev panel]', e); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true});
+  else boot();
+})();
+</script>
+
+<!-- === Export Pairs by Selected Date (v1.6.8 packed) === -->
+<script type="module">
+import { getFirestore, collection, getDocs, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import * as GS from "./assets/js/group_state.js?v=20250812";
+
+const dbExport = getFirestore();
+
+
+
+function getCurrentGroupIdSafe(){
+  try{
+    if (GS && typeof GS.getCurrentGroupId==='function'){
+      const id = GS.getCurrentGroupId();
+      if (id) return id;
+    }
+  } catch(_){}
+  const el = document.getElementById('ownerGroupSwitcher');
+  const ds = el?.getAttribute?.('data-active-group-id');
+  if (ds) return ds;
+  const stored = localStorage.getItem('currentGroupId');
+  if (stored) return stored;
+  return 'default';
+}
+
+function getSelectedDateKey(){
+  const input = document.getElementById('datePicker');
+  if (input && input.value){
+    return { key: input.value.replaceAll('-', ''), pretty: input.value }; // YYYYMMDD + YYYY-MM-DD
+  }
+  const d = new Date();
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return { key: `${y}${m}${day}`, pretty: `${y}-${m}-${day}` };
+}
+
+function csvEsc(v){
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+}
+
+function downloadCSV(filename, rows) {
+  const processRow = row => row.map(csvEsc).join(',');
+  const csvContent = rows.map(processRow).join("\n");
+
+  // เพิ่ม BOM สำหรับ UTF-8
+  const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  if (link.download !== undefined) { // support modern browsers
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+}
+
+
+function tsToDate(ts){
+  if (!ts) return '';
+  if (ts.toDate) return ts.toDate();
+  if (typeof ts === 'number' || typeof ts === 'string') return new Date(ts);
+  return '';
+}
+function toPlayersArray(m){
+  if (Array.isArray(m.players) && m.players.length){
+    return m.players.filter(Boolean).map(p => ({ id:p.id, name:p.name||p.id, level:Number(p.level||1) }));
+  }
+  if (Array.isArray(m.playerIds) && m.playerIds.length){
+    return m.playerIds.filter(Boolean).map(id => ({ id, name:id, level:1 }));
+  }
+  return [];
+}
+function splitTeams(m, P){
+  const isSingles = (m.type||'doubles') === 'singles';
+  const A = isSingles ? [P[0]].filter(Boolean) : [P[0], P[1]].filter(Boolean);
+  const B = isSingles ? [P[1]].filter(Boolean) : [P[2], P[3]].filter(Boolean);
+  return {A,B};
+}
+function pairRowsForMatch(m){
+  const P = toPlayersArray(m);
+  if (P.length < 2) return [];
+  const {A,B} = splitTeams(m,P);
+
+  const started = tsToDate(m.startedAt);
+  const ended   = tsToDate(m.endedAt);
+  const whenISO = started ? started.toISOString() : (ended ? ended.toISOString() : '');
+
+  const base = [
+    whenISO,              // datetime
+    m.id || '',           // matchId
+    m.type || '',         // type
+    m.status || '',       // status
+    m.courtNo ?? ''       // court
+  ];
+  const out = [];
+  if (A.length >= 2){ out.push([...base, 'same', A[0].id, A[0].name, A[1].id, A[1].name]); }
+  if (B.length >= 2){ out.push([...base, 'same', B[0].id, B[0].name, B[1].id, B[1].name]); }
+  for (const a of A){
+    for (const b of B){
+      out.push([...base, 'cross', a.id, a.name, b.id, b.name]);
+    }
+  }
+  return out;
+}
+
+async function exportPairsBySelectedDate(){
+  try{
+    const gid = getCurrentGroupIdSafe();
+    const { key: dayKey, pretty } = getSelectedDateKey();
+    const colRef = collection(dbExport, 'groups', gid, 'play_sessions', dayKey, 'matches');
+    const qref = query(colRef, where('status','in',['live','finished']), orderBy('createdAt','asc'));
+    const snap = await getDocs(qref);
+    if (snap.empty){ alert('ไม่พบแมตช์ที่เล่นในวันที่เลือก'); return; }
+
+    const rows = [[
+      'datetime','matchId','type','status','court',
+      'relation','p1Id','p1Name','p2Id','p2Name'
+    ]];
+    snap.forEach(docSnap=>{
+      const m = { id: docSnap.id, ...(docSnap.data()||{}) };
+      const list = pairRowsForMatch(m);
+      list.forEach(r => rows.push(r));
+    });
+
+    // ใช้ string ปกติ แทน backtick ที่ escaped
+    downloadCSV('pairs_'+pretty+'.csv', rows);
+  } catch(err){
+    console.error('[export pairs by date]', err);
+    alert('Export ล้มเหลว: ' + (err?.message || err));
+  }
+}
+</script>
+
+
+<!-- === Export Pairs by Selected Date (v1.6.9, UTF-8 BOM, marked colors) === -->
+<script type="module">
+import { getFirestore, collection, getDocs, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import * as GS from "./assets/js/group_state.js?v=20250812";
+
+const dbExport = getFirestore();
+
+// Add export button into filterBar
+/*
+document.addEventListener('DOMContentLoaded', () => {
+  const bar = document.getElementById('filterBar') || document.body;
+  const wrap = document.createElement('div');
+  wrap.className = 'ms-2 d-flex align-items-center';
+  wrap.innerHTML = '<button id="btnExportPairsByDate" class="btn btn-outline-secondary"><i class="bi bi-download"></i> ส่งออกประวัติการเล่น (ตามวันที่เลือก)</button>';
+  bar.appendChild(wrap);
+  const btn = document.getElementById('btnExportPairsByDate');
+  if (btn) btn.addEventListener('click', exportPairsBySelectedDate);
+});
+*/
+
+function getCurrentGroupIdSafe(){
+  try{
+    if (GS && typeof GS.getCurrentGroupId==='function'){
+      const id = GS.getCurrentGroupId();
+      if (id) return id;
+    }
+  } catch(_){}
+  const el = document.getElementById('ownerGroupSwitcher');
+  const ds = el && el.getAttribute ? el.getAttribute('data-active-group-id') : null;
+  if (ds) return ds;
+  const stored = localStorage.getItem('currentGroupId');
+  if (stored) return stored;
+  return 'default';
+}
+
+function getSelectedDateKey(){
+  const input = document.getElementById('datePicker');
+  if (input && input.value){
+    return { key: input.value.replaceAll('-', ''), pretty: input.value }; // YYYYMMDD + YYYY-MM-DD
+  }
+  const d = new Date();
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return { key: y+''+m+''+day, pretty: y+'-'+m+'-'+day };
+}
+
+function csvEsc(v){
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+function downloadCSV(filename, rows){
+  const csv = rows.map(r => r.map(csvEsc).join(',')).join('\n');
+  // add UTF-8 BOM for Thai in Excel
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(()=> URL.revokeObjectURL(a.href), 2500);
+}
+function tsToDate(ts){
+  if (!ts) return '';
+  if (typeof ts.toDate === 'function') return ts.toDate();
+  if (typeof ts === 'number' || typeof ts === 'string') return new Date(ts);
+  return '';
+}
+function toPlayersArray(m){
+  if (Array.isArray(m.players) && m.players.length){
+    return m.players.filter(Boolean).map(p => ({ id:p.id, name:p.name||p.id, level:Number(p.level||1) }));
+  }
+  if (Array.isArray(m.playerIds) && m.playerIds.length){
+    return m.playerIds.filter(Boolean).map(id => ({ id:id, name:id, level:1 }));
+  }
+  return [];
+}
+function splitTeams(m, P){
+  const isSingles = (m.type||'doubles') === 'singles';
+  const A = isSingles ? [P[0]].filter(Boolean) : [P[0], P[1]].filter(Boolean);
+  const B = isSingles ? [P[1]].filter(Boolean) : [P[2], P[3]].filter(Boolean);
+  return {A,B};
+}
+// stable colored mark by id hash
+function pickMark(key){
+  const icons = ['🟦','🟩','🟨','🟧','🟥','🟪','🟫','⬛','⬜'];
+  const s = String(key||'');
+  let h=0; for (let i=0;i<s.length;i++){ h = (h*31 + s.charCodeAt(i))>>>0; }
+  return icons[h % icons.length];
+}
+function pairRowsForMatch(m){
+  const P = toPlayersArray(m);
+  if (P.length < 2) return [];
+  const {A,B} = splitTeams(m,P);
+  const started = tsToDate(m.startedAt);
+  const ended   = tsToDate(m.endedAt);
+  const whenISO = started ? started.toISOString() : (ended ? ended.toISOString() : '');
+  const base = [
+    whenISO,              // datetime
+    m.id || '',           // matchId
+    m.type || '',         // type
+    m.status || ''        // status
+  ];
+  const out = [];
+  if (A.length >= 2){ out.push([...base, 'same', A[0].id, A[0].name, A[1].id, A[1].name]); }
+  if (B.length >= 2){ out.push([...base, 'same', B[0].id, B[0].name, B[1].id, B[1].name]); }
+  for (const a of A){ for (const b of B){
+    out.push([...base, 'cross', a.id, a.name, b.id, b.name]);
+  }}
+  return out;
+}
+
+/*async function exportPairsBySelectedDate(){
+  try{
+    const gid = getCurrentGroupIdSafe();
+    const sel = getSelectedDateKey();
+    const colRef = collection(dbExport, 'groups', gid, 'play_sessions', sel.key, 'matches');
+    const qref = query(colRef, where('status','in',['live','finished']), orderBy('createdAt','asc'));
+    const snap = await getDocs(qref);
+    if (snap.empty){ alert('ไม่พบแมตช์ที่เล่นในวันที่เลือก'); return; }
+
+    const rows = [[
+      'mark','datetime','matchId','type','status','court',
+      'relation','p1Id','p1Name','p2Id','p2Name'
+    ]];
+    snap.forEach(docSnap=>{
+      const m = { id: docSnap.id, ...(docSnap.data()||{}) };
+      const courtVal = (m.courtNo ?? m.lastCourtNo ?? m.courtId ?? '');
+      const mark = pickMark(m.id);
+      const list = pairRowsForMatch(m);
+      list.forEach(r => rows.push([mark, r[0], r[1], r[2], r[3], courtVal, r[4], r[5], r[6], r[7], r[8]]));
+    });
+    downloadCSV('pairs_'+sel.pretty+'.csv', rows);
+  } catch(err){
+    console.error('[export pairs by date]', err);
+    alert('Export ล้มเหลว: ' + (err && err.message ? err.message : err));
+  }
+}*/
+</script>
+
+
+<!-- === Export Teams by Selected Date (v1.6.9) === -->
+<script type="module">
+import { getFirestore, collection, getDocs, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import * as GS from "./assets/js/group_state.js?v=20250812";
+
+const dbExpTeams = getFirestore();
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  const bar = document.getElementById('filterBar') || document.body;
+  const holder = document.createElement('div');
+  holder.className = 'ms-2 d-flex align-items-center';
+  holder.innerHTML = '<button id="btnExportTeamsByDate" class="btn btn-outline-secondary"><i class="bi bi-download"></i> ส่งออกทีม (ตามวันที่เลือก)</button>';
+  bar.appendChild(holder);
+  document.getElementById('btnExportTeamsByDate')?.addEventListener('click', exportTeamsBySelectedDate);
+});
+
+function getCurrentGroupIdSafe(){
+  try{
+    if (GS && typeof GS.getCurrentGroupId==='function'){
+      const id = GS.getCurrentGroupId();
+      if (id) return id;
+    }
+  } catch(_){}
+  const el = document.getElementById('ownerGroupSwitcher');
+  const ds = el && el.getAttribute ? el.getAttribute('data-active-group-id') : null;
+  if (ds) return ds;
+  const stored = localStorage.getItem('currentGroupId');
+  if (stored) return stored;
+  return 'default';
+}
+
+function getSelectedDateKey(){
+  const input = document.getElementById('datePicker');
+  if (input && input.value){
+    return { key: input.value.replaceAll('-', ''), pretty: input.value };
+  }
+  const d = new Date();
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return { key: y+''+m+''+day, pretty: y+'-'+m+'-'+day };
+}
+
+function csvEsc(v){
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+function downloadCSV(filename, rows){
+  const csv = rows.map(r => r.map(csvEsc).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'}); // UTF-8 BOM
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(()=> URL.revokeObjectURL(a.href), 2500);
+}
+
+function tsToDate(ts){
+  if (!ts) return '';
+  if (typeof ts.toDate === 'function') return ts.toDate();
+  if (typeof ts === 'number' || typeof ts === 'string') return new Date(ts);
+  return '';
+}
+function toPlayersArray(m){
+  if (Array.isArray(m.players) && m.players.length){
+    return m.players.filter(Boolean).map(p => ({ id:p.id, name:p.name||p.id, level:Number(p.level||1) }));
+  }
+  if (Array.isArray(m.playerIds) && m.playerIds.length){
+    return m.playerIds.filter(Boolean).map(id => ({ id, name:id, level:1 }));
+  }
+  return [];
+}
+function splitTeams(m, P){
+  const isSingles = (m.type||'doubles') === 'singles';
+  const A = isSingles ? [P[0]].filter(Boolean) : [P[0], P[1]].filter(Boolean);
+  const B = isSingles ? [P[1]].filter(Boolean) : [P[2], P[3]].filter(Boolean);
+  return {A,B};
+}
+
+function namesOfTeam(team){
+  return team.filter(Boolean).map(p=> p.name || p.id).join(' + ');
+}
+
+async function exportTeamsBySelectedDate(){
+  try{
+    const gid = getCurrentGroupIdSafe();
+    const sel = getSelectedDateKey();
+    const colRef = collection(dbExpTeams, 'groups', gid, 'play_sessions', sel.key, 'matches');
+    // ดึงเฉพาะ live/finished ตามที่ "มีการเล่นจริง"
+    const qref = query(colRef, where('status','in',['live','finished']), orderBy('createdAt','asc'));
+    const snap = await getDocs(qref);
+    if (snap.empty){ alert('ไม่พบแมตช์ที่เล่นในวันที่เลือก'); return; }
+
+    const rows = [[
+      'datetime','matchId','type','status','court','relation','ชื่อผู้เล่น ทีม A','ชื่อผู้เล่น ทีม B'
+    ]];
+
+    snap.forEach(docSnap=>{
+      const m = { id: docSnap.id, ...(docSnap.data()||{}) };
+      const P = toPlayersArray(m);
+      if (P.length < 2) return;
+
+      const {A,B} = splitTeams(m,P);
+      const started = tsToDate(m.startedAt);
+      const ended   = tsToDate(m.endedAt);
+      const whenISO = started ? started.toISOString() : (ended ? ended.toISOString() : '');
+      const courtVal = (m.courtNo ?? m.lastCourtNo ?? m.courtId ?? '');
+
+      const teamA = namesOfTeam(A);
+      const teamB = namesOfTeam(B);
+
+      // relation: ใช้ 'AB' เพื่อบอกว่าเป็นแถวระดับแมตช์ (ทีม A vs ทีม B)
+      rows.push([whenISO, m.id||'', (m.type||''), (m.status||''), courtVal, 'AB', teamA, teamB]);
+    });
+
+    downloadCSV('teams_'+sel.pretty+'.csv', rows);
+  } catch(err){
+    console.error('[export teams by date]', err);
+    alert('Export ล้มเหลว: ' + (err && err.message ? err.message : err));
+  }
+}
+</script>
+
+
+<!-- === Smart Matching v1.7.0 (Cooldown-by-round + Tunable Weights) ===
+     NOTE: ปรับค่าได้ในบล็อก CONFIG ด้านล่าง (ค้นหา "SMART_MATCH_CONFIG")
+     เงื่อนไขที่รองรับ: (1) กันเจอซ้ำใน 8 รอบไม่เกิน 2 ครั้ง, (2) สิทธิ์คนรอนาน, 
+     (3) บาลานซ์เลเวล, (4) ความแฟร์เฉลี่ย (ไม่มีใคร < avg-2) + เพิ่ม COOLDOWN รอบถัดไป
+-->
+<script type="module">
+import { getFirestore, collection, doc, getDocs, query, where, addDoc, orderBy, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import * as GS from "./assets/js/group_state.js?v=20250812";
+
+const db = getFirestore();
+
+/* ========== SMART_MATCH_CONFIG (ปรับค่าได้) ==========
+   - WINDOW_ROUNDS: จำนวนรอบย้อนหลังที่ใช้ตรวจ "เจอซ้ำ" (คู่คนสองคน) (ข้อ 1)
+   - MAX_PAIR_REPEAT: ภายใน WINDOW_ROUNDS คู่คนเดิมต้องไม่เจอเกินค่านี้ (ข้อ 1)
+   - COOLDOWN_ROUNDS: เพิ่งเล่นไปในรอบก่อนหน้า ต้อง "พัก" อย่างน้อย n รอบ (ข้อ 2)
+   - W_WAIT: น้ำหนักคะแนนสำหรับสิทธิ์คนรอนาน (ข้อ 2)
+   - W_FAIR: น้ำหนักคะแนนแฟร์เนส (ช่วยดันคนที่เล่นน้อยกว่าเฉลี่ย) (ข้อ 4)
+   - W_BAL_TEAM_VAR: โทษความกระจายในทีม (ยิ่งสูง ยิ่งลงโทษมาก) (ข้อ 3)
+   - W_BAL_GAP: โทษช่องว่างเฉลี่ยระหว่างทีม A vs B (ข้อ 3)
+   - W_PAIR_WEAK: โทษเบาสำหรับ "เคยเจอ" (ยังไม่ถึง MAX_PAIR_REPEAT) เพื่อชะลอการเจอซ้ำ (ข้อ 1)
+   * ปรับค่าตามเลเวลจริงในกลุ่มของคุณได้เลย
+*/
+const SMART_MATCH_CONFIG = {
+  WINDOW_ROUNDS:   8,
+  MAX_PAIR_REPEAT: 2,
+  COOLDOWN_ROUNDS: 1,      // ← ปรับ cooldown ตามรอบที่ต้องการ
+  W_WAIT:          1.0,    // ← อยากให้คนรอได้สิทธิ์มากขึ้น เพิ่มค่านี้
+  W_FAIR:          3.0,    // ← อยากดันคนที่เล่นน้อย เพิ่มค่านี้
+  W_BAL_TEAM_VAR:  12,     // ← ยิ่งมากยิ่งไม่ชอบทีมที่ level ใกล้กันเกินไป (variance ต่ำเกิน)
+  W_BAL_GAP:       7,      // ← ยิ่งมากยิ่งกดโทษช่องว่างเฉลี่ยระหว่างทีม A/B
+  W_PAIR_WEAK:     5       // ← โทษเบาสำหรับคู่ที่เคยเจอแต่ยังไม่ถึงลิมิต
+};
+/* ====== END CONFIG ====== */
+
+function gid(){
+  try { return (typeof GS.getCurrentGroupId==='function' && GS.getCurrentGroupId()) || 'default'; } catch(_){ return 'default'; }
+}
+function dateKey(){
+  const input = document.getElementById('datePicker');
+  if (input && input.value) return input.value.replaceAll('-', '');
+  const d = new Date();
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}${m}${day}`;
+}
+
+/* ----- Rounds & cooldown storage (per group+date) ----- */
+const RKEY = ()=> `rounds:${gid()}:${dateKey()}`;
+const CKEY = ()=> `cooldown:${gid()}:${dateKey()}`; // pid -> lastRoundPlayed
+function readRounds(){ try{ return JSON.parse(localStorage.getItem(RKEY())||'[]'); } catch(_){ return []; } }
+function writeRounds(arr){ localStorage.setItem(RKEY(), JSON.stringify(arr.slice(-SMART_MATCH_CONFIG.WINDOW_ROUNDS))); }
+function startRound(){
+  const r = readRounds(); r.push({ t: Date.now(), matches: [] });
+  writeRounds(r); return r.length - 1;
+}
+function appendMatchRound(p4){
+  const r = readRounds(); if (!r.length) r.push({t:Date.now(), matches:[]});
+  r[r.length-1].matches.push({ players: p4.map(p=>({id:p.id})) });
+  writeRounds(r);
+  // save last round per player (cooldown)
+  const cur = r.length-1;
+  const cd  = readCooldown();
+  p4.forEach(p=> cd[p.id] = cur);
+  writeCooldown(cd);
+}
+function readCooldown(){ try{ return JSON.parse(localStorage.getItem(CKEY())||'{}'); } catch(_){ return {}; } }
+function writeCooldown(obj){ localStorage.setItem(CKEY(), JSON.stringify(obj||{})); }
+
+/* ----- Pair frequency within WINDOW_ROUNDS ----- */
+function pkey(a,b){ if (!a||!b||a===b) return null; return a<b ? (a+'|'+b) : (b+'|'+a); }
+function buildPairFreq(){
+  const rds = readRounds(); const map = new Map();
+  rds.slice(-SMART_MATCH_CONFIG.WINDOW_ROUNDS).forEach(r=>{
+    (r.matches||[]).forEach(m=>{
+      const ids = (m.players||[]).map(x=>x?.id).filter(Boolean);
+      for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){
+        const k = pkey(ids[i],ids[j]); if(!k) continue;
+        map.set(k, (map.get(k)||0) + 1);
+      }
+    });
+  });
+  return map;
+}
+
+/* ----- Load pool (participants queued today) + occupied guards ----- */
+/*async function loadPool(){
+  const baseP = collection(db, 'groups', gid(), 'play_sessions', dateKey(), 'participants');
+  const sP = await getDocs(query(baseP, where('status','==','queued')));
+  const now = Date.now();
+  const list = [];
+  sP.forEach(d=>{
+    const r = d.data()||{};
+    if (r.paused === true) return;
+    const lv = Number(r.level||1);
+    const nm = r.name || d.id;
+    let waitMin = 0;
+    const ws = r.waitingSince?.toMillis ? r.waitingSince.toMillis() : (typeof r.waitingSince==='number' ? r.waitingSince : null);
+    if (ws) waitMin = Math.max(0, Math.round((now - ws)/60000));
+    list.push({ id:d.id, name:nm, level:lv, waitMin, plays:Number(r.gamesPlayed||0) });
+  });
+
+  // remove occupied (queued/live matches)
+  const baseM = collection(db, 'groups', gid(), 'play_sessions', dateKey(), 'matches');
+  const sQ = await getDocs(query(baseM, where('status','==','queued')));
+  const sL = await getDocs(query(baseM, where('status','==','live')));
+  const occ = new Set();
+  const add = (snap)=>snap.forEach(ds=>{
+    const m = ds.data()||{};
+    const ids = (m.playerIds && m.playerIds.length) ? m.playerIds : (Array.isArray(m.players)? m.players.map(p=>p?.id).filter(Boolean) : []);
+    ids.forEach(id=> occ.add(id));
+  });
+  add(sQ); add(sL);
+
+  return list.filter(p=> !occ.has(p.id));
+}*/
+
+/* ----- Load pool (participants arrived today) + occupied guards ----- */
+async function loadPool(){
+  const baseP = collection(db, 'groups', gid(), 'play_sessions', dateKey(), 'participants');
+
+  // เดิม where('status','==','queued') -> ปรับเป็น arrived==true แล้วไปกรองสถานะในแอป
+  const sP = await getDocs(query(baseP, where('arrived','==', true)));
+
+  const now = Date.now();
+  const list = [];
+  sP.forEach(d=>{
+    const r = d.data() || {};
+    // กรองในแอป: หยุดพัก / กำลังเล่น ไม่เข้าพูล
+    if (r.paused === true) return;
+    if (r.status === 'playing') return;
+
+    const lv = Number(r.level || 1);
+    const nm = r.name || d.id;
+
+    // เวลารอ (เดิม)
+    let waitMin = 0;
+    const ws = r.waitingSince?.toMillis ? r.waitingSince.toMillis() : (typeof r.waitingSince === 'number' ? r.waitingSince : null);
+    if (ws) waitMin = Math.max(0, Math.round((now - ws) / 60000));
+   // Patch B — Fallback เวลารอ
+     if (!ws) {
+      const plays = Number(r.gamesPlayed || 0);
+      waitMin = (plays === 0) ? 60 : 0;
+    }
+	list.push({ id:d.id, name:nm, level:lv, waitMin, plays:Number(r.gamesPlayed||0),status: r.status || '' });
+   //   list.push({ id: d.id, name: nm, level: lv,waitMin,plays: Number(r.gamesPlayed || 0),status: r.status || ''});
+  });
+
+  // remove occupied (คนที่ถูกเลือกอยู่ใน queued/live matches แล้ว)
+  const baseM = collection(db, 'groups', gid(), 'play_sessions', dateKey(), 'matches');
+  const sQ = await getDocs(query(baseM, where('status','==','queued')));
+  const sL = await getDocs(query(baseM, where('status','==','live')));
+  const occ = new Set();
+  const add = (snap)=>snap.forEach(ds=>{
+    const m = ds.data() || {};
+    const ids = (m.playerIds && m.playerIds.length)
+      ? m.playerIds
+      : (Array.isArray(m.players) ? m.players.map(p=>p?.id).filter(Boolean) : []);
+    ids.forEach(id => occ.add(id));
+  });
+  add(sQ); add(sL);
+
+  // กรองออก: คนที่ถูกจอง/กำลังเล่นอยู่แล้ว
+  return list.filter(p => !occ.has(p.id));
+}
+
+
+
+/* ----- Fairness baseline ----- */
+async function computeAvgPlays(){
+  const col = collection(db, 'groups', gid(), 'play_sessions', dateKey(), 'participants');
+  const snap = await getDocs(col);
+  let total=0, active=0;
+  snap.forEach(d=>{
+    const r = d.data()||{};
+    if (r.paused === true) return;
+    total += Number(r.gamesPlayed||0); active++;
+  });
+  return active>0 ? Math.floor(total/active) : 0;
+}
+
+/* ----- Balance & scoring ----- */
+function teamStats(team){
+  const lv = team.map(p=>Number(p.level||1));
+  const avg = lv.reduce((a,b)=>a+b,0)/lv.length;
+  const max = Math.max(...lv), min = Math.min(...lv);
+
+  const variance = lv.reduce((a,b)=>a+(b-avg)*(b-avg),0)/lv.length;
+  return { avg, variance, spread: max-min };
+}
+function trySplits(p4){
+  // 3 pairings: [0,1|2,3], [0,2|1,3], [0,3|1,2]
+  const opts = [
+    [p4[0],p4[1],p4[2],p4[3]],
+    [p4[0],p4[2],p4[1],p4[3]],
+    [p4[0],p4[3],p4[1],p4[2]],
+  ];
+  let best=null, bestScore=-1e9, bestSplit=null;
+  opts.forEach(arr=>{
+    const A=[arr[0],arr[1]], B=[arr[2],arr[3]];
+    const sA=teamStats(A), sB=teamStats(B);
+    // โทษความกระจายในทีม + โทษช่องว่างเฉลี่ยระหว่างทีม
+    const teamVar = sA.variance + sB.variance;
+    const gap = Math.abs(sA.avg - sB.avg);
+    // กรณี "ล็อก tier ทั้งสองทีม" (กระจายในทีมต่ำ + gap ต่ำเกิน) ให้โทษพิเศษ
+    const lockPenalty = (sA.spread<1 && sB.spread<1 && gap<0.5) ? 80 : 0;
+    const score = -(SMART_MATCH_CONFIG.W_BAL_TEAM_VAR*teamVar + SMART_MATCH_CONFIG.W_BAL_GAP*gap) - lockPenalty;
+    if (score > bestScore){ bestScore=score; bestSplit={A,B}; best=arr.slice(); }
+  });
+  return { score: bestScore, split: bestSplit };
+}
+
+function passHardLimits(p4, pairFreq, currentRound, cd){
+  // 1) กันเจอซ้ำใน WINDOW_ROUNDS: คู่ใดแตะ MAX_PAIR_REPEAT ตัดทิ้ง
+  for (let i=0;i<p4.length;i++){
+    for (let j=i+1;j<p4.length;j++){
+      const k = pkey(p4[i].id, p4[j].id); if (!k) continue;
+      if ((pairFreq.get(k)||0) >= SMART_MATCH_CONFIG.MAX_PAIR_REPEAT) return false;
+    }
+  }
+  // 2) COOLDOWN รอบ: ถ้าเพิ่งเล่นใน (currentRound - lastRound) < COOLDOWN_ROUNDS → ตัดทิ้ง
+  for (const p of p4){
+    const last = Number(cd[p.id] ?? -1);
+    if (last >= 0 && (currentRound - last) < SMART_MATCH_CONFIG.COOLDOWN_ROUNDS) return false;
+  }
+  return true;
+}
+
+function softScore(p4, sBest, avgPlays, pairFreq){
+  const waitSum = p4.reduce((s,p)=> s + Number(p.waitMin||0), 0);
+  const fairBonus = p4.reduce((s,p)=> s + Math.max(0, (avgPlays - Number(p.plays||0))), 0);
+  // โทษเบาสำหรับคู่ที่เคยเจอ (ยังไม่ถึงลิมิต) เพื่อกระจายคู่ให้ทั่ว
+  let pairWeakPenalty = 0;
+  for (let i=0;i<p4.length;i++){
+    for (let j=i+1;j<p4.length;j++){
+      const k = pkey(p4[i].id, p4[j].id);
+      if (!k) continue;
+      const f = pairFreq.get(k)||0;
+      pairWeakPenalty += f * SMART_MATCH_CONFIG.W_PAIR_WEAK;
+    }
+  }
+  return SMART_MATCH_CONFIG.W_WAIT*waitSum + SMART_MATCH_CONFIG.W_FAIR*fairBonus + sBest.score - pairWeakPenalty;
+}
+
+/* ----- utils ----- */
+function* comb4(arr){
+  const n=arr.length;
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++) for(let k=j+1;k<n;k++) for(let l=k+1;l<n;l++) yield [arr[i],arr[j],arr[k],arr[l]];
+}
+function rankPool(pool){
+  // เรียง: รอนานสุดก่อน > เล่นน้อยก่อน
+ /* return pool.slice().sort((a,b)=>{
+    const dw = (b.waitMin||0) - (a.waitMin||0);
+    if (dw !== 0) return dw;
+    return (a.plays||0) - (b.plays||0);
+  }); */
+
+  // เรียง: รอนานสุดก่อน > เล่นน้อยก่อน > ชื่อ/ไอดี (คงที่) > สุ่มเล็กน้อย
+  return pool.slice().sort((a,b)=>{
+    // 1) รอนานก่อน (desc)
+    const dw = (b.waitMin || 0) - (a.waitMin || 0);
+    if (dw !== 0) return dw;
+
+    // 2) เล่นน้อยก่อน (asc)
+    const dp = (a.plays || 0) - (b.plays || 0);
+    if (dp !== 0) return dp;
+
+    // 3) ผูกกันจริง ๆ ให้ใช้ชื่อ/ไอดีเพื่อความคงที่ของลำดับ
+    const na = (a.name || a.id || '').toString();
+    const nb = (b.name || b.id || '').toString();
+    if (na && nb && na !== nb) return na.localeCompare(nb);
+
+    // 4) สุดท้าย—กันล็อกด้วย jitter เล็กน้อย
+    return (Math.random() < 0.5) ? -1 : 1;
+  });
+
+
+}
+
+/* ----- enqueue to Firestore ----- */
+async function enqueueMatch(players){
+  const payload = {
+    type: 'doubles',
+    playerIds: players.map(p=>p.id),
+    players: players.map(p=>({ id:p.id, name:p.name||p.id, level:Number(p.level||1) })),
+    status: 'queued',
+    manual: false,
+    createdAt: serverTimestamp()
+  };
+  const base = collection(db, 'groups', gid(), 'play_sessions', dateKey(), 'matches');
+  await addDoc(base, payload);
+}
+
+/* ----- main handler: replace existing button behavior ----- */
+async function handleCreateMatchesWithCooldown(){
+  const sel = document.getElementById('matchesToCreate');
+  const want = Math.max(1, Math.min(3, Number(sel?.value || '1')));
+
+  const currentRound = startRound();
+  const pairFreq = buildPairFreq();
+  const cd = readCooldown();
+  const pool = await loadPool();
+  const avgPlays = await computeAvgPlays();
+  if (pool.length < 4){ alert('ยังมีคนไม่พอ'); return; }
+
+  //const topK = rankPool(pool).slice(0, Math.min(16, pool.length));
+  
+  const POOL_WINDOW = 32; // 24–40 ก็ได้
+  const topK = rankPool(pool).slice(0, Math.min(POOL_WINDOW, pool.length));
+
+  
+  let created = 0;
+  const used = new Set();
+  
+  
+  for (let t=0; t<want; t++){
+    let best=null;
+    for (const p4 of comb4(topK)){
+	  if (p4.some(p => used.has(p.id))) continue; // ข้ามถ้าเคยถูกใช้ในคลิกเดียวกัน
+
+      if (!passHardLimits(p4, pairFreq, currentRound, cd)) continue;
+      const sBest = trySplits(p4);
+      const sc = softScore(p4, sBest, avgPlays, pairFreq);
+      if (!best || sc > best.score) best = { p4, split: sBest.split, score: sc };
+    }
+    if (!best){
+      if (t===0) alert('ยังจัดแมตช์ไม่ได้ตามเงื่อนไข/คูลดาวน์');
+      break;
+    }
+  //  const chosen = [...best.split.A, ...best.split.B];
+
+
+    const chosen = [...(best.split?.A||[]), ...(best.split?.B||[])];
+    chosen.forEach(p => used.add(p.id)); // กันซ้ำในการคลิกเดียว
+
+
+
+    await enqueueMatch(chosen);
+    appendMatchRound(chosen); // บันทึกรอบ + cooldown
+    // update pairFreq local forถัดไปในรอบนี้
+    for (let i=0;i<chosen.length;i++) for (let j=i+1;j<chosen.length;j++){
+      const k = pkey(chosen[i].id, chosen[j].id); if (!k) continue;
+      pairFreq.set(k, (pairFreq.get(k)||0) + 1);
+    }
+    created++;
+  }
+}
+
+(function installSmartHandler(){
+  const btn = document.getElementById('btnCreateMatches');
+  if (!btn) return;
+  const clone = btn.cloneNode(true);
+  btn.parentNode.replaceChild(clone, btn);
+  clone.addEventListener('click', (e)=>{ e.preventDefault(); handleCreateMatchesWithCooldown(); });
+  console.log('[smart-matching] cooldown+weights handler installed');
+})();
+
+</script>
+
+
+
+
+
+
+
+</body>
+
+
+</html>
